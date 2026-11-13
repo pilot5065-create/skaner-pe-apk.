@@ -25,17 +25,26 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 object MarketScheduler {
-    private const val WORK_NAME = "market_radar_hourly_scan"
-
     fun schedule(context: Context) {
+        val manager = WorkManager.getInstance(context)
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
-        val request = PeriodicWorkRequestBuilder<MarketScanWorker>(60, TimeUnit.MINUTES)
+
+        // Four highest-volatility AI/semiconductor names receive a more frequent scan.
+        val fast = PeriodicWorkRequestBuilder<MarketFastScanWorker>(15, TimeUnit.MINUTES)
             .setConstraints(constraints)
             .build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request
+        manager.enqueueUniquePeriodicWork(
+            "market_radar_priority_15m", ExistingPeriodicWorkPolicy.KEEP, fast
+        )
+
+        // The remainder of the watchlist is scanned less often to respect the free API quota.
+        val broad = PeriodicWorkRequestBuilder<MarketScanWorker>(90, TimeUnit.MINUTES)
+            .setConstraints(constraints)
+            .build()
+        manager.enqueueUniquePeriodicWork(
+            "market_radar_broad_90m", ExistingPeriodicWorkPolicy.KEEP, broad
         )
     }
 }
@@ -149,6 +158,27 @@ object MarketRefresher {
     }
 }
 
+private val PRIORITY_SYMBOLS = setOf("NVDA", "SMCI", "AMD", "AVGO")
+
+class MarketFastScanWorker(
+    appContext: Context,
+    params: WorkerParameters
+) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
+        val key = SecretVault.read(applicationContext, "twelve_data_key")
+        if (key.isBlank()) return Result.success()
+        return try {
+            val priority = DefaultWatchlist.load(applicationContext).filter { it.symbol in PRIORITY_SYMBOLS }
+            MarketRefresher.refreshQuotes(applicationContext, key, priority)
+            applicationContext.getSharedPreferences("market_radar", Context.MODE_PRIVATE)
+                .edit().putLong("last_priority_scan", System.currentTimeMillis()).apply()
+            Result.success()
+        } catch (_: Exception) {
+            Result.retry()
+        }
+    }
+}
+
 class MarketScanWorker(
     appContext: Context,
     params: WorkerParameters
@@ -157,9 +187,8 @@ class MarketScanWorker(
         val key = SecretVault.read(applicationContext, "twelve_data_key")
         if (key.isBlank()) return Result.success()
         return try {
-            MarketRefresher.refreshQuotes(
-                applicationContext, key, DefaultWatchlist.load(applicationContext)
-            )
+            val rest = DefaultWatchlist.load(applicationContext).filterNot { it.symbol in PRIORITY_SYMBOLS }
+            MarketRefresher.refreshQuotes(applicationContext, key, rest)
             applicationContext.getSharedPreferences("market_radar", Context.MODE_PRIVATE)
                 .edit().putLong("last_background_scan", System.currentTimeMillis()).apply()
             Result.success()
