@@ -3,29 +3,54 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
-      - name: Install Android SDK 37
-        run: sdkmanager "platforms;android-37" "build-tools;36.0.0"
+
+      # Android 17 API 37.0 is published under android-37.0 (not android-37).
+      # AGP 9.1.1 uses Build Tools 36.0.0 by default.
+      - name: Install Android 17 SDK packages
+        run: |
+          sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0"
+          test -s "$ANDROID_HOME/platforms/android-37.0/android.jar"
+          test -x "$ANDROID_HOME/build-tools/36.0.0/aapt"
+          test -x "$ANDROID_HOME/build-tools/36.0.0/apksigner"
+
       - name: Build debug APK
-        run: gradle --no-daemon clean assembleDebug
-      - name: Verify APK exists
-        run: test -s app/build/outputs/apk/debug/app-debug.apk
+        run: gradle --no-daemon clean testDebugUnitTest assembleDebug
+
+      - name: Verify APK package and signature
+        shell: bash
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee apk-badging.txt
+          grep -F "package: name='pl.marketradar.app'" apk-badging.txt
+          grep -F "sdkVersion:'26'" apk-badging.txt
+          grep -F "targetSdkVersion:'37'" apk-badging.txt
+          sha256sum "$APK" | tee apk-sha256.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: MarketRadar-Android17-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            apk-sha256.txt
           retention-days: 30
