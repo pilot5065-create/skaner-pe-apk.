@@ -70,6 +70,115 @@ object SecretVault {
     fun has(context: Context, name: String) = read(context, name).isNotBlank()
 }
 
+object YahooFinanceClient {
+    private fun yahooSymbol(instrument: Instrument): String = when {
+        instrument.market == "GPW" -> instrument.symbol.substringBefore(":") + ".WA"
+        instrument.symbol.endsWith(":XETR") -> instrument.symbol.substringBefore(":") + ".DE"
+        instrument.symbol.endsWith(":XAMS") -> instrument.symbol.substringBefore(":") + ".AS"
+        else -> instrument.symbol
+    }
+
+    private fun chart(symbol: String, range: String, interval: String): JSONObject {
+        val encoded = URLEncoder.encode(symbol, "UTF-8")
+        val url = URL("https://query1.finance.yahoo.com/v8/finance/chart/$encoded?range=$range&interval=$interval&events=div%2Csplits")
+        val connection = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 12_000
+            readTimeout = 18_000
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125 Mobile Safari/537.36")
+        }
+        try {
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) throw IllegalStateException("Yahoo Finance HTTP $code")
+            val root = JSONObject(body).optJSONObject("chart") ?: throw IllegalStateException("Nieprawidłowa odpowiedź Yahoo Finance")
+            val error = root.optJSONObject("error")
+            if (error != null && !error.isNull("code")) throw IllegalStateException("Yahoo Finance: ${error.optString("description")}")
+            return root.optJSONArray("result")?.optJSONObject(0)
+                ?: throw IllegalStateException("Yahoo Finance nie zwrócił danych dla $symbol")
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    fun quote(instrument: Instrument): Quote {
+        val json = chart(yahooSymbol(instrument), "5d", "5m")
+        val meta = json.optJSONObject("meta") ?: throw IllegalStateException("Brak metadanych Yahoo Finance")
+        val indicators = json.optJSONObject("indicators")
+        val quote = indicators?.optJSONArray("quote")?.optJSONObject(0)
+        val closes = quote?.optJSONArray("close")
+        var lastPrice: Double? = null
+        if (closes != null) for (i in closes.length() - 1 downTo 0) {
+            val value = closes.optDouble(i, Double.NaN)
+            if (value.isFinite() && value > 0) { lastPrice = value; break }
+        }
+        val price = meta.optDouble("regularMarketPrice", Double.NaN).takeIf { it.isFinite() && it > 0 }
+            ?: lastPrice ?: throw IllegalStateException("Brak aktualnej ceny Yahoo Finance dla ${instrument.symbol}")
+        val previous = meta.optDouble("chartPreviousClose", Double.NaN).takeIf { it.isFinite() && it > 0 }
+            ?: meta.optDouble("previousClose", Double.NaN).takeIf { it.isFinite() && it > 0 }
+            ?: throw IllegalStateException("Brak poprzedniego zamknięcia Yahoo Finance")
+        val change = price - previous
+        val epoch = meta.optLong("regularMarketTime", 0L)
+        val currency = meta.optString("currency", if (instrument.market == "GPW") "PLN" else if (instrument.market == "EUROPA") "EUR" else "USD")
+        return Quote(
+            instrument.symbol, instrument.name, instrument.market, currency, price, change,
+            change / previous * 100.0, previous,
+            meta.optDouble("regularMarketDayHigh", price), meta.optDouble("regularMarketDayLow", price),
+            meta.optLong("regularMarketVolume", 0L), 0L,
+            if (epoch > 0) Instant.ofEpochSecond(epoch).toString() else "czas dostawcy niepodany",
+            System.currentTimeMillis(), "Yahoo Finance (nieoficjalny endpoint)"
+        )
+    }
+
+    fun technical(instrument: Instrument): TechnicalSignal {
+        val json = chart(yahooSymbol(instrument), "6mo", "1d")
+        val meta = json.optJSONObject("meta") ?: throw IllegalStateException("Brak metadanych historii Yahoo Finance")
+        val quotes = json.optJSONObject("indicators")?.optJSONArray("quote")?.optJSONObject(0)
+            ?: throw IllegalStateException("Brak świec Yahoo Finance")
+        val raw = quotes.optJSONArray("close") ?: throw IllegalStateException("Brak cen zamknięcia Yahoo Finance")
+        val closes = mutableListOf<Double>()
+        val volumes = mutableListOf<Long>()
+        val volumeArray = quotes.optJSONArray("volume")
+        for (i in 0 until raw.length()) {
+            val close = raw.optDouble(i, Double.NaN)
+            if (close.isFinite() && close > 0) {
+                closes.add(close)
+                volumes.add(volumeArray?.optLong(i, 0L) ?: 0L)
+            }
+        }
+        if (closes.size < 50) throw IllegalStateException("Yahoo Finance zwrócił mniej niż 50 świec dla ${instrument.symbol}")
+        val ordered = closes.asReversed()
+        val orderedVolumes = volumes.asReversed()
+        val sma20 = ordered.takeLast(20).average()
+        val sma50 = ordered.takeLast(50).average()
+        val deltas = (1 until minOf(15, ordered.size)).map { ordered[ordered.size - it] - ordered[ordered.size - it - 1] }
+        val gains = deltas.filter { it > 0 }.sum() / 14.0
+        val losses = deltas.filter { it < 0 }.sumOf { -it } / 14.0
+        val rsi = when {
+            losses == 0.0 && gains == 0.0 -> 50.0
+            losses == 0.0 -> 100.0
+            else -> 100.0 - 100.0 / (1.0 + gains / losses)
+        }
+        val price = ordered.last()
+        val change5d = (price / ordered[ordered.size - 6] - 1.0) * 100.0
+        val avgVol = orderedVolumes.takeLast(20).dropLast(1).filter { it > 0 }.average().takeIf { it.isFinite() } ?: 0.0
+        val currentVol = orderedVolumes.lastOrNull() ?: 0L
+        val label: String
+        val explanation: String
+        when {
+            rsi >= 70.0 -> { label = "Rozgrzany – ryzyko cofnięcia"; explanation = "RSI ${rsi.fmt(1)}. Rynek jest wykupiony; nie traktuj momentum jako automatycznego sygnału kupna." }
+            price > sma20 && sma20 > sma50 && rsi in 50.0..69.9 -> { label = "Trend wzrostowy"; explanation = "Cena > SMA20 > SMA50, RSI ${rsi.fmt(1)}. Trend dodatni; zarządzaj ryzykiem." }
+            price > sma50 && rsi in 40.0..55.0 -> { label = "Możliwy pullback w trendzie"; explanation = "Cena pozostaje nad SMA50, RSI ${rsi.fmt(1)}. Czekaj na potwierdzenie odbicia." }
+            price < sma50 && rsi < 45.0 -> { label = "Trend słaby"; explanation = "Cena poniżej SMA50, RSI ${rsi.fmt(1)}. Ryzyko kontynuacji spadku jest podwyższone." }
+            else -> { label = "Neutralnie / bez przewagi"; explanation = "Brak zgodnego układu średnich i RSI." }
+        }
+        return TechnicalSignal(instrument.symbol, instrument.name, instrument.market, price, sma20, sma50, rsi,
+            change5d, avgVol, currentVol, label, explanation, System.currentTimeMillis())
+    }
+}
+
 object TwelveDataClient {
     private const val BASE = "https://api.twelvedata.com"
 
