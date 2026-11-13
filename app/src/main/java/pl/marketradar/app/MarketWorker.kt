@@ -106,15 +106,17 @@ object MarketRefresher {
         instruments.forEachIndexed { index, instrument ->
             try {
                 val old = MarketStore.quote(context, instrument.symbol)
-                val quote = when {
-                    instrument.market == "USA" && finnhubKey.isNotBlank() ->
-                        FinnhubClient.quote(finnhubKey, instrument)
-                    twelveDataKey.isNotBlank() ->
-                        TwelveDataClient.quote(twelveDataKey, instrument)
-                    instrument.market == "USA" ->
-                        throw IllegalStateException("Dodaj token Finnhub dla amerykańskich notowań.")
-                    else ->
-                        throw IllegalStateException("Europa/GPW wymaga Twelve Data z licencją internal display i uprawnieniem do konkretnej giełdy. Darmowy Basic nie pozwala wyświetlać kursów; katalog wskazuje GPW/XWAR od planu Ultra.")
+                val quote = try {
+                    // Yahoo Finance is the default no-key fallback for the whole watchlist.
+                    YahooFinanceClient.quote(instrument)
+                } catch (yahooError: Exception) {
+                    when {
+                        instrument.market == "USA" && finnhubKey.isNotBlank() ->
+                            FinnhubClient.quote(finnhubKey, instrument)
+                        twelveDataKey.isNotBlank() ->
+                            TwelveDataClient.quote(twelveDataKey, instrument)
+                        else -> throw IllegalStateException("Yahoo Finance: ${yahooError.message ?: "brak danych"}. Brak dodatkowego źródła dla tego instrumentu; dodaj token Finnhub (USA) lub licencjonowany Twelve Data (Europa/GPW).")
+                    }
                 }
                 MarketStore.saveQuote(context, quote)
                 results.add(quote)
@@ -142,7 +144,12 @@ object MarketRefresher {
                 return@forEachIndexed
             }
             try {
-                val signal = TwelveDataClient.technical(apiKey, instrument)
+                val signal = try {
+                    YahooFinanceClient.technical(instrument)
+                } catch (yahooError: Exception) {
+                    if (apiKey.isNotBlank()) TwelveDataClient.technical(apiKey, instrument)
+                    else throw IllegalStateException("Yahoo Finance: ${yahooError.message ?: "brak historii"}. Nie ma klucza alternatywnego dostawcy.")
+                }
                 MarketStore.saveTechnical(context, signal)
                 MarketStore.setTechnicalDate(context, instrument.symbol, today)
                 results.add(signal)
@@ -186,7 +193,7 @@ class MarketFastScanWorker(
     override suspend fun doWork(): Result {
         val twelveKey = SecretVault.read(applicationContext, "twelve_data_key")
         val finnhubKey = SecretVault.read(applicationContext, "finnhub_key")
-        if (twelveKey.isBlank() && finnhubKey.isBlank()) return Result.success()
+        // Yahoo Finance requires no API key; always run the free fallback scanner.
         return try {
             val priority = DefaultWatchlist.load(applicationContext).filter { it.symbol in PRIORITY_SYMBOLS }
             MarketRefresher.refreshQuotes(applicationContext, twelveKey, finnhubKey, priority)
