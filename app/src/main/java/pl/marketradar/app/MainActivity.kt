@@ -636,8 +636,8 @@ private fun SettingsScreen(
             Surface(color = Panel, shape = RoundedCornerShape(14.dp)) {
                 Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("HARMONOGRAM", color = Green, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text("Skan w tle co 60 minut. Android może go opóźnić przez oszczędzanie baterii; ręczny skan możesz uruchomić przyciskiem Skanuj.", color = Color.White, fontSize = 11.sp)
-                    Text("22 instrumenty × 24 cykle = około 528 zapytań/dzień. Pozostaje zapas w planie Basic, ale częste ręczne skany zużyją dodatkowe kredyty.", color = Muted, fontSize = 10.sp)
+                    Text("Priorytet: NVDA, SMCI, AMD i AVGO co 15 minut. Pozostałe 18 instrumentów co 90 minut. Android może opóźniać zadania w tle przez oszczędzanie baterii.", color = Color.White, fontSize = 11.sp)
+                    Text("Szacunkowo około 672 zapytań cenowych/dzień przy pełnym harmonogramie. Analiza techniczna pobiera historię oddzielnie i zapisuje cache raz dziennie; ręczne skany zużywają dodatkowe kredyty.", color = Muted, fontSize = 10.sp)
                 }
             }
         }
