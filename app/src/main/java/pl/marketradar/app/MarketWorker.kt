@@ -143,10 +143,7 @@ object MarketRefresher {
         val threshold = MarketStore.threshold(context)
         val levels = listOf(threshold, 5.0).distinct().sorted()
         levels.forEach { level ->
-            val crossed = abs(old.percentChange) < level && abs(current.percentChange) >= level
-            val changedDirection = old.percentChange * current.percentChange < 0 &&
-                abs(current.percentChange) >= level
-            if (!crossed && !changedDirection) return@forEach
+            if (!MarketRules.crossesAlert(old.percentChange, current.percentChange, level)) return@forEach
             val direction = if (current.percentChange >= 0) "wzrost" else "spadek"
             val severity = if (level >= 5.0) "PILNY" else "SILNY RUCH"
             val key = "${LocalDate.now()}|${level}|$direction"
