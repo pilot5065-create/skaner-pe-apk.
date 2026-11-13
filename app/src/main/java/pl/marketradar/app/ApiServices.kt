@@ -211,6 +211,55 @@ object TwelveDataClient {
 object FinnhubClient {
     private const val BASE = "https://finnhub.io/api/v1"
 
+    fun quote(token: String, instrument: Instrument): Quote {
+        val url = URL("$BASE/quote?symbol=${URLEncoder.encode(instrument.symbol, "UTF-8")}")
+        val connection = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 12_000
+            readTimeout = 18_000
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("X-Finnhub-Token", token)
+            setRequestProperty("User-Agent", "MarketRadar-Android/1.0 personal-use")
+        }
+        try {
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) {
+                val message = when (code) {
+                    401 -> "Nieprawidłowy token Finnhub."
+                    403 -> "Finnhub nie udostępnia tego instrumentu na Twoim planie."
+                    429 -> "Limit zapytań Finnhub. Spróbuj później."
+                    else -> "Finnhub HTTP $code."
+                }
+                throw IllegalStateException(message)
+            }
+            val json = JSONObject(body)
+            val price = json.number("c") ?: throw IllegalStateException("Brak kursu Finnhub dla ${instrument.symbol}.")
+            if (price <= 0.0) throw IllegalStateException("Finnhub nie zwrócił aktualnego kursu dla ${instrument.symbol}.")
+            val epoch = json.optLong("t")
+            return Quote(
+                symbol = instrument.symbol,
+                name = instrument.name,
+                market = instrument.market,
+                currency = "USD",
+                price = price,
+                change = json.number("d") ?: 0.0,
+                percentChange = json.number("dp") ?: 0.0,
+                previousClose = json.number("pc") ?: 0.0,
+                dayHigh = json.number("h") ?: 0.0,
+                dayLow = json.number("l") ?: 0.0,
+                volume = 0L,
+                averageVolume = 0L,
+                timestamp = if (epoch > 0) Instant.ofEpochSecond(epoch).toString() else "czas dostawcy niepodany",
+                fetchedAt = System.currentTimeMillis(),
+                source = "Finnhub"
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private fun getArray(path: String, params: Map<String, String>, token: String): JSONArray {
         val query = (params + ("token" to token)).entries.joinToString("&") {
             "${URLEncoder.encode(it.key, "UTF-8")}=${URLEncoder.encode(it.value, "UTF-8")}"
