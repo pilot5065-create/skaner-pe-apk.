@@ -91,10 +91,10 @@ object DefaultWatchlist {
         Instrument("EEM", "iShares MSCI Emerging Markets ETF", "USA", "ETF / rynki wschodzące"),
         Instrument("SAP:XETR", "SAP", "EUROPA", "Technologia"),
         Instrument("ASML:XAMS", "ASML", "EUROPA", "Półprzewodniki"),
-        Instrument("KRU:WSE", "Kruk", "GPW", "Polska / finanse"),
-        Instrument("LBW:WSE", "Lubawa", "GPW", "Polska / przemysł"),
-        Instrument("PZU:WSE", "PZU", "GPW", "Polska / finanse"),
-        Instrument("PEO:WSE", "Bank Pekao", "GPW", "Polska / banki")
+        Instrument("KRU:XWAR", "Kruk", "GPW", "Polska / finanse"),
+        Instrument("LBW:XWAR", "Lubawa", "GPW", "Polska / przemysł"),
+        Instrument("PZU:XWAR", "PZU", "GPW", "Polska / finanse"),
+        Instrument("PEO:XWAR", "Bank Pekao", "GPW", "Polska / banki")
     )
 
     fun load(context: Context): List<Instrument> {
