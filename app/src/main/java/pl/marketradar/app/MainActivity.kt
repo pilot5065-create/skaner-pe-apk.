@@ -327,7 +327,7 @@ private fun RadarScreen(
             }
         }
         if (quotes.isEmpty()) {
-            item { EmptyCard("Brak notowań", "Dodaj token Finnhub dla rynku USA. Europa i GPW wymagają Twelve Data z prawem internal display. Nie pokazuję fikcyjnych ani przykładowych cen.") }
+            item { EmptyCard("Brak notowań", "Dodaj token Finnhub dla rynku USA. Europa i GPW wymagają Twelve Data z prawem internal display i dostępem do danej giełdy. Nie pokazuję fikcyjnych ani przykładowych cen.") }
         } else {
             items(movers, key = { it.symbol }) { quote ->
                 QuoteCard(quote)
@@ -632,7 +632,7 @@ private fun SettingsScreen(
             ProviderCard(
                 name = "Twelve Data — Europa/GPW i historia",
                 status = if (twelveConfigured) "Klucz zapisany na urządzeniu" else "Opcjonalny — plan z internal display",
-                note = "Do wyświetlania kursów w aplikacji potrzebny jest plan z prawem internal display. Basic Free jest non-display. Grow: globalne akcje/ETF EOD; live Europa wymaga wyższego planu i/lub danych giełdowych.",
+                note = "Do wyświetlania kursów w aplikacji potrzebny jest plan z prawem internal display. Basic Free jest non-display. Grow: globalne akcje/ETF EOD; Pro: live na wybranych rynkach UE. Uwaga: katalog Twelve Data wskazuje GPW/XWAR dopiero od planu Ultra.",
                 linkLabel = "Załóż konto / pobierz klucz",
                 onOpen = { onOpen("https://twelvedata.com/pricing") }
             )
@@ -695,7 +695,7 @@ private fun SettingsScreen(
         }
         item {
             Text("ŹRÓDŁA PIERWOTNE I ZASADY", color = Green, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Text("USA: Finnhub (notowania i newsy), dokumenty SEC EDGAR jako źródła pierwotne. Europa/GPW: Twelve Data tylko z licencją internal display; EOD lub live zależnie od planu i dodatków giełdowych. Komunikaty polskich emitentów: ESPI/EBI przez PAP Biznes / oficjalne raporty emitentów.", color = Muted, fontSize = 11.sp)
+            Text("USA: Finnhub (notowania i newsy), dokumenty SEC EDGAR jako źródła pierwotne. Europa/GPW: Twelve Data tylko z licencją internal display i dostępem giełdowym; Xetra/Euronext i GPW mają różne progi planów (GPW/XWAR: Ultra). Komunikaty polskich emitentów: ESPI/EBI przez PAP Biznes / oficjalne raporty emitentów.", color = Muted, fontSize = 11.sp)
             Text("Aplikacja nie składa zleceń, nie łączy się z rachunkami maklerskimi i nie zna Twoich rzeczywistych pozycji, dopóki sam ich nie wpiszesz.", color = Muted, fontSize = 10.sp)
         }
     }
@@ -722,13 +722,13 @@ private fun AddSymbolDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Un
         title = { Text("Dodaj instrument") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(symbol, { symbol = it.uppercase(Locale.US) }, label = { Text("Ticker u dostawcy (np. NVDA, SAP:XETR, KRU:WSE)") }, singleLine = true)
+                OutlinedTextField(symbol, { symbol = it.uppercase(Locale.US) }, label = { Text("Ticker u dostawcy (np. NVDA, SAP:XETR, KRU:XWAR)") }, singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     listOf("USA", "EUROPA", "GPW").forEach { m ->
                         FilterChip(selected = market == m, onClick = { market = m }, label = { Text(m) })
                     }
                 }
-                Text("Przykład formatu: NVDA lub SAP:XETR albo KRU:WSE. Dostępność symbolu zależy od katalogu dostawcy.", color = Muted, fontSize = 10.sp)
+                Text("Przykład formatu: NVDA lub SAP:XETR albo KRU:XWAR. Dostępność symbolu zależy od katalogu dostawcy.", color = Muted, fontSize = 10.sp)
             }
         },
         confirmButton = { TextButton(onClick = { if (symbol.isNotBlank()) onAdd(symbol, market) }) { Text("Dodaj") } },
