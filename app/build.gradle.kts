@@ -1,9 +1,11 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
-val eodhdApiKeyB64 = java.util.Base64.getEncoder().encodeToString(
+val eodhdApiKeyB64 = Base64.getEncoder().encodeToString(
     (System.getenv("EODHD_API_KEY") ?: "").toByteArray(Charsets.UTF_8)
 )
 
