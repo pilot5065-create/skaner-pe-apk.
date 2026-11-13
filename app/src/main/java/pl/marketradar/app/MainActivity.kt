@@ -174,7 +174,18 @@ fun MarketRadarApp(context: Context) {
                     listOf("Radar", "Sygnały", "News", "Portfel", "Ustawienia").forEach { item ->
                         NavigationBarItem(
                             selected = tab == item,
-                            onClick = { tab = item },
+                            onClick = {
+                                tab = item
+                                when (item) {
+                                    "Radar" -> {
+                                        quotes = MarketStore.allQuotes(context)
+                                        alerts = MarketStore.alerts(context)
+                                    }
+                                    "Sygnały" -> technical = MarketStore.allTechnical(context)
+                                    "News" -> news = MarketStore.news(context)
+                                    "Portfel" -> holdings = MarketStore.loadHoldings(context)
+                                }
+                            },
                             icon = { Text(when (item) { "Radar" -> "◉"; "Sygnały" -> "⌁"; "News" -> "▤"; "Portfel" -> "▥"; else -> "⚙" }, fontSize = 18.sp) },
                             label = { Text(item, fontSize = 10.sp) },
                             colors = NavigationBarItemDefaults.colors(
@@ -561,9 +572,11 @@ private fun PortfolioScreen(
                         }
                         TextButton(onClick = { onRemove(holding.symbol) }) { Text("Usuń", color = Red) }
                     }
-                    if (q != null && pl != null) {
+                    if (q != null && q.currency == holding.currency && pl != null) {
                         Text("Wartość rynkowa: ${(q.price * holding.quantity).priceFmt()} ${q.currency}", color = Color.White, fontSize = 12.sp)
                         Text("Niezrealizowany wynik: ${if (pl >= 0) "+" else ""}${pl.priceFmt()} ${q.currency}", color = if (pl >= 0) Green else Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    } else if (q != null) {
+                        Text("Waluta ceny zakupu (${holding.currency}) różni się od waluty notowania (${q.currency}). Wynik nie jest liczony bez konwersji.", color = Amber, fontSize = 10.sp)
                     } else Text("Brak aktualnego kursu w watchliście. Dodaj symbol i odśwież skan.", color = Amber, fontSize = 10.sp)
                 }
             }
