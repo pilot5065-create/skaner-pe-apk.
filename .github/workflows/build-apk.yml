@@ -34,6 +34,16 @@ jobs:
           test -x "$ANDROID_HOME/build-tools/36.0.0/aapt"
           test -x "$ANDROID_HOME/build-tools/36.0.0/apksigner"
 
+      - name: Prevent credential exposure through public artifacts
+        env:
+          EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [[ -n "$EODHD_API_KEY" && "$REPOSITORY_PRIVATE" != "true" ]]; then
+            echo "::error::Do not inject EODHD_API_KEY into a build artifact from a public repository. Make this repository private first."
+            exit 1
+          fi
+
       - name: Build debug APK
         env:
           EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
