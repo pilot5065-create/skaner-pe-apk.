@@ -1,39 +1,43 @@
 # Market Radar — prywatny skaner inwestycyjny
 
-Prywatna aplikacja Android dla jednego użytkownika. Nie składa zleceń i nie łączy się z rachunkami maklerskimi.
+Prywatna aplikacja Android do monitorowania watchlisty. Nie składa zleceń i nie łączy się z rachunkami maklerskimi.
+
+## Bezpłatne źródła notowań
+1. **Yahoo Finance Chart API** — domyślne źródło bez klucza API. Aplikacja pobiera notowania i dzienne świece dla USA, wybranych rynków europejskich i GPW (mapowanie tickerów: SAP.DE, ASML.AS, KRU.WA itd.). To nieoficjalny endpoint używany przez serwis Yahoo Finance, niepublicznie udokumentowany jako stabilne API. Może zmienić format, ograniczyć zapytania lub przestać odpowiadać. Nie traktuj go jako gwarantowanego feedu giełdowego.
+2. **Finnhub Free** — opcjonalne źródło zapasowe dla USA i wiadomości; wymaga darmowego tokenu. Plan bezpłatny ma limity i zakres osobistego użytku. Nie zakładaj, że zapewnia historyczne świece.
+3. **Twelve Data** — opcjonalny fallback. Pokazywanie danych w aplikacji wymaga odpowiedniego prawa internal display i uprawnień giełdowych. Darmowy Basic jest non-display, więc nie może być użyty do wyświetlania kursów.
+
+Dane z Yahoo mają status informacyjny i mogą być opóźnione lub nieaktualne. Przy błędzie Yahoo aplikacja spróbuje Finnhub (USA), a następnie Twelve Data (jeśli skonfigurowane). Nie scala ani nie uśrednia kursów z różnych źródeł; każdy odczyt zachowuje nazwę dostawcy i czas źródłowy.
 
 ## Funkcje
-- Watchlista: USA, Europa i GPW; domyślnie spółki AI/półprzewodniki, wybrane Big Tech, ETF-y oraz Kruk, Lubawa, PZU i Pekao.
-- Notowania USA przez Finnhub; kursy rynków międzynarodowych przez Twelve Data, jeśli konto ma odpowiednie uprawnienia do wyświetlania danych.
-- Alerty po przekroczeniu dziennej zmiany procentowej: domyślnie 3% i 5%.
-- Priorytetowy skan NVDA, SMCI, AMD i AVGO co 15 minut; pozostała watchlista co 90 minut.
-- Wiadomości Finnhub odświeżane w tle co godzinę.
-- Analiza dziennych świec: SMA20, SMA50, RSI14 i zmiana 5 sesji.
-- Lista obserwacyjna 30 dni: tylko kandydaci z określonym warunkiem obserwacji i unieważnienia.
+- Watchlista: USA, Europa i GPW; AI/półprzewodniki, Big Tech, ETF-y, Kruk, Lubawa, PZU i Pekao.
+- Skan ręczny bez klucza API; automatyczny skan priorytetowych NVDA, SMCI, AMD i AVGO co 15 minut oraz reszty watchlisty co 90 minut (WorkManager może opóźnić wykonanie).
+- Alerty po przekroczeniu progów zmiany procentowej.
+- Analiza techniczna z dziennych świec Yahoo: SMA20, SMA50, RSI14, zmiana 5 sesji. Wymaga co najmniej 50 poprawnych świec.
+- Lista obserwacyjna 30 dni z warunkiem obserwacji i unieważnienia scenariusza.
+- Wiadomości Finnhub co godzinę po dodaniu tokenu.
 - Lokalny dziennik portfela long; ręczne wpisanie symbolu, ilości i średniej ceny.
-- Klucze API szyfrowane kluczem Android Keystore.
 
-## Konfiguracja dostawców
-1. Finnhub: dodaj własny token w zakładce Ustawienia. Używaj w granicach planu osobistego i warunków licencyjnych dostawcy. Nie udostępniaj aplikacji ani danych innym osobom.
-2. Twelve Data: opcjonalnie dodaj klucz planu z prawem internal display i uprawnieniem do wybranej giełdy. Basic Free jest przeznaczony do użycia non-display i nie może służyć do pokazywania kursów w aplikacji.
-3. Włącz powiadomienia Market Radar w ustawieniach Androida. System może opóźniać harmonogramy w tle.
+## Konfiguracja
+- Skaner kursów i analiza techniczna uruchamiają się bez klucza dzięki Yahoo Finance.
+- Opcjonalnie dodaj token Finnhub w Ustawieniach, aby mieć zapasowe notowania USA i wiadomości.
+- Twelve Data dodawaj tylko jeśli posiadasz właściwe uprawnienia do wyświetlania danych.
+- Klucze API są szyfrowane Android Keystore.
+- Włącz powiadomienia Market Radar w ustawieniach Androida. Wyłącz agresywne oszczędzanie baterii dla aplikacji, jeśli chcesz ograniczyć opóźnienia zadań.
 
-W cenniku indywidualnym Twelve Data (sprawdź przed zakupem) Grow obejmuje EOD dla globalnych akcji/ETF-ów i internal display; Pro obejmuje real-time na wybranych rynkach UE. Katalog Twelve Data wskazuje GPW/WARSAW (MIC XWAR) od planu Ultra. Zakres danych zależy też od dodatków giełdowych.
-
-## Zasady
-- Brak fikcyjnych notowań: jeśli API nie zwróci ceny, aplikacja pokaże brak danych.
-- Każdy kurs zachowuje źródło i znacznik czasu dostawcy oraz lokalny czas pobrania.
-- Alert jest wykrywaniem już zaistniałej zmiany między odczytami, a nie przewidywaniem ruchu.
-- Sygnały techniczne i lista 30-dniowa są filtrami obserwacyjnymi, nie rekomendacją inwestycyjną. Nie uwzględniają wyceny, wyników, spreadu, podatków ani pełnego ryzyka portfela.
-- Raporty polskich emitentów: źródła pierwotne ESPI/EBI; link do PAP Biznes w zakładce News. Wersja aplikacji nie pobiera jeszcze raportów ESPI/EBI automatycznie.
-- SEC EDGAR jest udostępniony jako odnośnik do źródeł pierwotnych, nie jako automatycznie synchronizowany feed.
+## Zasady i ograniczenia
+- Brak fikcyjnych kursów: jeśli dostawcy nie zwrócą prawidłowej ceny, aplikacja zachowuje ostatni odczyt i pokazuje błąd/status; nie tworzy wartości zastępczych.
+- Alert wykrywa ruch już zaistniały między kolejnymi odczytami, a nie przewiduje go.
+- Sygnały techniczne są filtrami obserwacyjnymi, nie rekomendacjami. Nie uwzględniają pełnej wyceny, wyników, spreadów, podatków ani ryzyka portfela.
+- Raporty ESPI/EBI i SEC EDGAR są dostępne jako odnośniki, nie są automatycznie synchronizowanym feedem.
+- Brak integracji z XTB/Trade Republic, automatycznego FX PLN/USD, shortów/CFD i składania zleceń.
 
 ## Budowanie
-GitHub Actions buduje APK z Android SDK 37.0 / API 37, uruchamia testy jednostkowe, sprawdza identyfikator pakietu i podpis APK, a następnie publikuje artefakt.
+GitHub Actions buduje APK z Android API 37 i uruchamia testy jednostkowe.
 
-Identyfikator aplikacji: `pl.marketradar.app`  
+Identyfikator: `pl.marketradar.app`  
 Minimalny Android: API 26  
 Docelowy Android: API 37
 
-## Ograniczenia podpisu
-Aktualny artefakt CI jest podpisany kluczem debugowym. Do długoterminowych aktualizacji bez odinstalowania aplikacji należy skonfigurować stały klucz release signing jako sekrety GitHub Actions. Nie przechowuj klucza podpisującego w publicznym repozytorium.
+## Podpis
+Artefakty CI są podpisane kluczem debugowym. Do aktualizacji bez odinstalowania aplikacji trzeba skonfigurować trwały klucz release signing jako sekrety GitHub Actions. Nie commituj keystore do repozytorium.
