@@ -32,14 +32,15 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val Navy = Color(0xFF08111F)
-private val Panel = Color(0xFF142137)
-private val Panel2 = Color(0xFF1B2B43)
-private val Muted = Color(0xFF9DADC2)
-private val Green = Color(0xFF41D6A2)
-private val Red = Color(0xFFFF7272)
-private val Amber = Color(0xFFFFC766)
-private val Blue = Color(0xFF75B7FF)
+private val Navy = Color(0xFFF4F7FB)
+private val Panel = Color(0xFFFFFFFF)
+private val Panel2 = Color(0xFFEAF0F7)
+private val Muted = Color(0xFF64748B)
+private val Green = Color(0xFF15803D)
+private val Red = Color(0xFFDC2626)
+private val Amber = Color(0xFFB45309)
+private val Blue = Color(0xFF2563EB)
+private val Ink = Color(0xFF172033)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,7 +67,8 @@ fun MarketRadarApp(context: Context) {
     var alerts by remember { mutableStateOf(MarketStore.alerts(context)) }
     var holdings by remember { mutableStateOf(MarketStore.loadHoldings(context)) }
     var busy by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("Uruchamiam bezpłatny skaner Yahoo Finance…") }
+    var manualRemaining by remember { mutableStateOf(ManualScanQuota.remaining(context)) }
+    var status by remember { mutableStateOf("Uruchamiam Yahoo Finance i automatyczny backup EODHD…") }
     var progress by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var twelveConfigured by remember { mutableStateOf(SecretVault.has(context, "twelve_data_key")) }
@@ -85,15 +87,24 @@ fun MarketRadarApp(context: Context) {
         holdings = MarketStore.loadHoldings(context)
     }
 
-    suspend fun updateQuotes() {
+    suspend fun updateQuotes(manual: Boolean = true) {
+        if (busy) return
+        if (manual) {
+            if (!ManualScanQuota.consume(context)) {
+                manualRemaining = ManualScanQuota.remaining(context)
+                status = "Wykorzystano limit 30 ręcznych skanów na dziś. Automatyczny skan w tle działa niezależnie."
+                return
+            }
+            manualRemaining = ManualScanQuota.remaining(context)
+        }
         busy = true
-        status = "Pobieranie bezpłatnych notowań Yahoo Finance; Finnhub/Twelve Data są źródłami zapasowymi…"
+        status = "Pobieranie notowań: Yahoo Finance → EODHD → opcjonalnie Finnhub / Twelve Data…"
         progress = "Przygotowanie skanera"
         try {
             val done = MarketRefresher.refreshQuotes(context, apiKey, finnhubKey, instruments) { current, total, symbol ->
                 withContext(Dispatchers.Main) {
                     progress = "${current} / ${total} • ${symbol}"
-                    status = "Źródło podstawowe: Yahoo Finance (bez klucza); zapasowo Finnhub / Twelve Data, jeśli skonfigurowane."
+                    status = "Yahoo Finance jest źródłem podstawowym; EODHD jest automatycznym backupem kontrolującym limit API."
                 }
             }
             reloadLocal()
@@ -147,13 +158,13 @@ fun MarketRadarApp(context: Context) {
     }
 
     LaunchedEffect(Unit) {
-        if (quotes.isEmpty() && !busy) updateQuotes()
+        if (quotes.isEmpty() && !busy) updateQuotes(manual = false)
     }
 
     MaterialTheme(
-        colorScheme = darkColorScheme(
+        colorScheme = lightColorScheme(
             primary = Green, secondary = Blue, background = Navy, surface = Panel,
-            onBackground = Color.White, onSurface = Color.White,
+            onBackground = Ink, onSurface = Ink,
             surfaceVariant = Panel2, onSurfaceVariant = Muted
         )
     ) {
@@ -196,7 +207,7 @@ fun MarketRadarApp(context: Context) {
                 when (tab) {
                     "Radar" -> RadarScreen(
                         quotes = quotes, alerts = alerts, status = status, progress = progress,
-                        filter = marketFilter, onFilter = { marketFilter = it },
+                        filter = marketFilter, manualRemaining = manualRemaining, onFilter = { marketFilter = it },
                         onRefresh = { scope.launch { updateQuotes() } },
                         onAdd = { addSymbolDialog = true },
                         busy = busy
@@ -256,7 +267,7 @@ fun MarketRadarApp(context: Context) {
             AlertDialog(
                 onDismissRequest = { showSettings = false },
                 title = { Text("Konfiguracja dostawców") },
-                text = { Text("Skaner kursów i analiza techniczna uruchamiają się przez Yahoo Finance bez tokenu. Dodaj token Finnhub, jeśli chcesz dodatkowe źródło notowań USA i wiadomości.") },
+                text = { Text("Yahoo Finance uruchamia skan bez klucza. EODHD jest już wbudowany jako automatyczny backup. Finnhub i Twelve Data pozostają opcjonalne.") },
                 confirmButton = { TextButton(onClick = { showSettings = false; tab = "Ustawienia" }) { Text("Otwórz ustawienia") } }
             )
         }
@@ -271,10 +282,10 @@ private fun TopHeader(busy: Boolean, onRefresh: () -> Unit, onSettings: () -> Un
     ) {
         Column(Modifier.weight(1f)) {
             Text("MARKET RADAR", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
-            Text("Terminal inwestycyjny", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Terminal inwestycyjny", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
         TextButton(onClick = onSettings) { Text("USTAW", color = Muted) }
-        Button(onClick = onRefresh, enabled = !busy, colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Navy)) {
+        Button(onClick = onRefresh, enabled = !busy, colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Ink)) {
             Text(if (busy) "…" else "Skanuj")
         }
     }
@@ -283,7 +294,7 @@ private fun TopHeader(busy: Boolean, onRefresh: () -> Unit, onSettings: () -> Un
 @Composable
 private fun RadarScreen(
     quotes: List<Quote>, alerts: List<RadarAlert>, status: String, progress: String,
-    filter: String, onFilter: (String) -> Unit, onRefresh: () -> Unit, onAdd: () -> Unit, busy: Boolean
+    filter: String, manualRemaining: Int, onFilter: (String) -> Unit, onRefresh: () -> Unit, onAdd: () -> Unit, busy: Boolean
 ) {
     val shown = quotes.filter { filter == "WSZYSTKIE" || it.market == filter }
     val movers = shown.sortedByDescending { kotlin.math.abs(it.percentChange) }
@@ -303,9 +314,10 @@ private fun RadarScreen(
             Surface(color = Panel, shape = RoundedCornerShape(14.dp)) {
                 Column(Modifier.fillMaxWidth().padding(13.dp)) {
                     Text("STATUS SKANERA", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Text(status, color = Color.White, fontSize = 12.sp)
+                    Text(status, color = Ink, fontSize = 12.sp)
                     if (progress.isNotBlank()) Text(progress, color = Green, fontSize = 11.sp)
-                    Text("USA: Finnhub (zakres i opóźnienie zależą od tokenu oraz uprawnień). Europa/GPW: Twelve Data wyłącznie z prawem internal display.", color = Muted, fontSize = 10.sp)
+                    Text("Ręczne odświeżenia dzisiaj: ${manualRemaining}/30 pozostało. Limit EODHD jest kontrolowany osobno.", color = Blue, fontSize = 10.sp)
+                    Text("Źródła: Yahoo Finance (nieoficjalny endpoint), EODHD (backup opóźniony), Finnhub/Twelve Data (opcjonalnie).", color = Muted, fontSize = 10.sp)
                 }
             }
         }
@@ -316,7 +328,7 @@ private fun RadarScreen(
                         selected = filter == market,
                         onClick = { onFilter(market) },
                         label = { Text(market, fontSize = 10.sp) },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Green, selectedLabelColor = Navy)
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Green, selectedLabelColor = Ink)
                     )
                 }
             }
@@ -358,11 +370,11 @@ private fun QuoteCard(q: Quote) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(q.symbol, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(q.symbol, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Text("${q.name} • ${q.market}", color = Muted, fontSize = 10.sp)
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("${q.price.priceFmt()} ${q.currency}", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    Text("${q.price.priceFmt()} ${q.currency}", color = Ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text("${if (q.percentChange >= 0) "+" else ""}${q.percentChange.fmt(2)}%", color = tint, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -384,7 +396,7 @@ private fun QuoteCard(q: Quote) {
 private fun SmallMetric(label: String, value: String) {
     Column {
         Text(label, color = Muted, fontSize = 9.sp)
-        Text(value, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Text(value, color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -397,7 +409,7 @@ private fun AlertCard(a: RadarAlert) {
                 Spacer(Modifier.weight(1f))
                 Text(clock(a.createdAt), color = Muted, fontSize = 9.sp)
             }
-            Text(a.headline, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(a.headline, color = Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             Text(a.detail, color = Muted, fontSize = 11.sp)
         }
     }
@@ -416,9 +428,9 @@ private fun TechnicalScreen(values: List<TechnicalSignal>, busy: Boolean, status
     ) {
         item {
             Text("RADAR UKŁADÓW TECHNICZNYCH", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text("SMA20 / SMA50 • RSI14 • zmiana 5 sesji", color = Muted, fontSize = 11.sp)
+            Text("SMA20 / SMA50 • EMA9 • RSI14 • ATR14 • RVOL • zmiana 5 sesji", color = Muted, fontSize = 11.sp)
             Spacer(Modifier.height(8.dp))
-            Button(onClick = onRefresh, enabled = !busy, colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Navy)) {
+            Button(onClick = onRefresh, enabled = !busy, colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Ink)) {
                 Text(if (busy) "Analizuję…" else "Przelicz z dziennych świec")
             }
             Text(status, color = Muted, fontSize = 10.sp)
@@ -442,7 +454,7 @@ private fun TechnicalScreen(values: List<TechnicalSignal>, busy: Boolean, status
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("${signal.symbol} • ${signal.name}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("${signal.symbol} • ${signal.name}", color = Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Text(signal.market, color = Muted, fontSize = 10.sp)
                         }
                         Text(signal.label, color = signalColor(signal.label), fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -453,8 +465,23 @@ private fun TechnicalScreen(values: List<TechnicalSignal>, busy: Boolean, status
                         SmallMetric("SMA 50", signal.sma50.priceFmt())
                         SmallMetric("5 sesji", "${if (signal.change5d >= 0) "+" else ""}${signal.change5d.fmt(1)}%")
                     }
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        SmallMetric("EMA 9", signal.ema9.priceFmt())
+                        SmallMetric("ATR 14", signal.atr14.priceFmt())
+                        SmallMetric("RVOL", if (signal.relativeVolume > 0.0) "${signal.relativeVolume.fmt(2)}x" else "—")
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        SmallMetric("Wsparcie 20d", signal.support20.priceFmt())
+                        SmallMetric("Opór 20d", signal.resistance20.priceFmt())
+                    }
+                    if (signal.atr14 > 0.0) {
+                        Text(
+                            "Poziomy orientacyjne (long): stop = ${(signal.price - 1.5 * signal.atr14).priceFmt()}, cel 2R = ${(signal.price + 3.0 * signal.atr14).priceFmt()} • ATR 1,5x / 3x. Nie jest to zlecenie.",
+                            color = Amber, fontSize = 10.sp
+                        )
+                    }
                     Text(signal.explanation, color = Muted, fontSize = 11.sp)
-                    Text("Historia dzienna Yahoo Finance • ${clock(signal.calculatedAt)}", color = Muted, fontSize = 9.sp)
+                    Text("${signal.source} • ${clock(signal.calculatedAt)}", color = Muted, fontSize = 9.sp)
                 }
             }
         }
@@ -469,10 +496,10 @@ private fun MonthlyIdeaCard(signal: TechnicalSignal) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("${signal.symbol} • ${signal.name}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("${signal.symbol} • ${signal.name}", color = Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Text(if (continuation) "Kontynuacja trendu" else "Możliwy pullback", color = if (continuation) Green else Blue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
-                Text("${signal.price.priceFmt()}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("${signal.price.priceFmt()}", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
             Text(
                 if (continuation)
@@ -498,7 +525,7 @@ private fun NewsScreen(items: List<MarketNews>, busy: Boolean, status: String, o
             Text("WIADOMOŚCI I KATALIZATORY", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Text("Finnhub • news ogólnorynkowy i wybrane spółki USA", color = Muted, fontSize = 11.sp)
             Spacer(Modifier.height(8.dp))
-            Button(onClick = onRefresh, enabled = !busy, colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Navy)) {
+            Button(onClick = onRefresh, enabled = !busy, colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Ink)) {
                 Text(if (busy) "Pobieram…" else "Odśwież wiadomości")
             }
             Text(status, color = Muted, fontSize = 10.sp)
@@ -522,7 +549,7 @@ private fun NewsScreen(items: List<MarketNews>, busy: Boolean, status: String, o
                         Text(item.source, color = Green, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         Text(if (item.publishedAt > 0) clock(item.publishedAt * 1000) else "Czas niepodany", color = Muted, fontSize = 9.sp)
                     }
-                    Text(item.headline, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(item.headline, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     if (item.related.isNotBlank()) Text("Powiązane: ${item.related}", color = Blue, fontSize = 10.sp)
                     if (item.summary.isNotBlank()) Text(item.summary.take(320), color = Muted, fontSize = 11.sp)
                     Text("Otwórz oryginalny artykuł ↗", color = Blue, fontSize = 10.sp)
@@ -547,7 +574,7 @@ private fun PortfolioScreen(
         item {
             Text("PORTFEL I RYZYKO", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Text("Wpisz pozycje z XTB / Trade Republic lub innych rachunków. Dane są zapisywane tylko lokalnie na telefonie.", color = Muted, fontSize = 11.sp)
-            Button(onClick = { showDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Navy)) { Text("+ Dodaj pozycję") }
+            Button(onClick = { showDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Ink)) { Text("+ Dodaj pozycję") }
         }
         if (holdings.isEmpty()) item { EmptyCard("Nie dodano pozycji", "Nie wpisuję za Ciebie historycznych udziałów, bo mogły się zmienić. Dodaj aktualne ilości i średnią cenę zakupu.") }
         items(holdings, key = { it.symbol }) { holding ->
@@ -557,13 +584,13 @@ private fun PortfolioScreen(
                 Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(holding.symbol, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(holding.symbol, color = Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Text("${holding.quantity.fmt(4)} szt. • średnia ${holding.averagePrice.priceFmt()} ${holding.currency}", color = Muted, fontSize = 10.sp)
                         }
                         TextButton(onClick = { onRemove(holding.symbol) }) { Text("Usuń", color = Red) }
                     }
                     if (q != null && q.currency == holding.currency && pl != null) {
-                        Text("Wartość rynkowa: ${(q.price * holding.quantity).priceFmt()} ${q.currency}", color = Color.White, fontSize = 12.sp)
+                        Text("Wartość rynkowa: ${(q.price * holding.quantity).priceFmt()} ${q.currency}", color = Ink, fontSize = 12.sp)
                         Text("Niezrealizowany wynik: ${if (pl >= 0) "+" else ""}${pl.priceFmt()} ${q.currency}", color = if (pl >= 0) Green else Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     } else if (q != null) {
                         Text("Waluta ceny zakupu (${holding.currency}) różni się od waluty notowania (${q.currency}). Wynik nie jest liczony bez konwersji.", color = Amber, fontSize = 10.sp)
@@ -629,7 +656,16 @@ private fun SettingsScreen(
     ) {
         item {
             Text("USTAWIENIA I DOSTAWCY", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text("Skaner działa bez klucza przez Yahoo Finance. Dodatkowe klucze Finnhub/Twelve Data są szyfrowane w Android Keystore.", color = Muted, fontSize = 11.sp)
+            Text("Yahoo Finance działa bez klucza. Wbudowany backup EODHD jest automatycznie zapisywany szyfrowany w Android Keystore; tokeny dodatkowe są opcjonalne.", color = Muted, fontSize = 11.sp)
+        }
+        item {
+            ProviderCard(
+                name = "EODHD — wbudowany dostawca zapasowy",
+                status = "Klucz z bezpiecznej konfiguracji kompilacji",
+                note = "Klucz EODHD jest wstrzykiwany do APK przez sekret EODHD_API_KEY w GitHub Actions, a przy pierwszym użyciu zapisywany szyfrowany w Android Keystore. W samej aplikacji niczego nie wpisujesz.",
+                linkLabel = "Limity i koszty API",
+                onOpen = { onOpen("https://eodhd.com/financial-apis/api-limits") }
+            )
         }
         item {
             ProviderCard(
@@ -678,7 +714,7 @@ private fun SettingsScreen(
             Surface(color = Panel, shape = RoundedCornerShape(14.dp)) {
                 Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("HARMONOGRAM", color = Green, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text("Priorytet: NVDA, SMCI, AMD i AVGO co 15 minut. Pozostałe 18 instrumentów co 90 minut. Wiadomości Finnhub odświeżane co 60 minut. Android może opóźniać zadania w tle przez oszczędzanie baterii.", color = Color.White, fontSize = 11.sp)
+                    Text("Priorytet: NVDA, SMCI, AMD i AVGO co 15 minut. Pozostałe 18 instrumentów co 90 minut. Wiadomości Finnhub odświeżane co 60 minut. Android może opóźniać zadania w tle przez oszczędzanie baterii.", color = Ink, fontSize = 11.sp)
                     Text("Szacunkowo około 672 zapytań cenowych/dzień przy pełnym harmonogramie. Analiza techniczna pobiera historię oddzielnie i zapisuje cache raz dziennie; ręczne skany zużywają dodatkowe kredyty.", color = Muted, fontSize = 10.sp)
                 }
             }
@@ -691,14 +727,14 @@ private fun SettingsScreen(
                     twelve = ""; finn = ""
                 },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Navy)
+                colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Ink)
             ) { Text("Zapisz konfigurację") }
             OutlinedButton(onClick = onRefresh, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Uruchom skan teraz") }
             Text(status, color = Muted, fontSize = 10.sp)
         }
         item {
             Text("ŹRÓDŁA PIERWOTNE I ZASADY", color = Green, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Text("Podstawowe kursy: Yahoo Finance Chart API (nieoficjalny endpoint bez klucza; może się zmieniać i być ograniczany). Zapasowo USA: Finnhub Free (wymaga darmowego tokenu). Dodatkowo Twelve Data wyłącznie z licencją internal display. Pokrycie giełd zależy od symbolu i dostawcy.", color = Muted, fontSize = 11.sp)
+            Text("Kolejność źródeł: Yahoo Finance bez klucza → EODHD z wbudowanym kluczem i kontrolą puli API → opcjonalnie Finnhub/Twelve Data. EODHD /real-time jest opóźnione; dostęp do giełd zależy od planu.", color = Muted, fontSize = 11.sp)
             Text("Aplikacja nie składa zleceń, nie łączy się z rachunkami maklerskimi i nie zna Twoich rzeczywistych pozycji, dopóki sam ich nie wpiszesz.", color = Muted, fontSize = 10.sp)
         }
     }
@@ -708,7 +744,7 @@ private fun SettingsScreen(
 private fun ProviderCard(name: String, status: String, note: String, linkLabel: String, onOpen: () -> Unit) {
     Surface(color = Panel, shape = RoundedCornerShape(14.dp)) {
         Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(name, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Text(status, color = Green, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Text(note, color = Muted, fontSize = 10.sp)
             TextButton(onClick = onOpen) { Text(linkLabel) }

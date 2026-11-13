@@ -43,7 +43,13 @@ data class TechnicalSignal(
     val latestVolume: Long,
     val label: String,
     val explanation: String,
-    val calculatedAt: Long
+    val calculatedAt: Long,
+    val ema9: Double = 0.0,
+    val atr14: Double = 0.0,
+    val support20: Double = 0.0,
+    val resistance20: Double = 0.0,
+    val relativeVolume: Double = 0.0,
+    val source: String = "Yahoo Finance"
 )
 
 data class MarketNews(
@@ -256,12 +262,17 @@ object MarketStore {
         .put("sma20", s.sma20).put("sma50", s.sma50).put("rsi14", s.rsi14).put("change5d", s.change5d)
         .put("averageVolume20", s.averageVolume20).put("latestVolume", s.latestVolume)
         .put("label", s.label).put("explanation", s.explanation).put("calculatedAt", s.calculatedAt)
+        .put("ema9", s.ema9).put("atr14", s.atr14).put("support20", s.support20)
+        .put("resistance20", s.resistance20).put("relativeVolume", s.relativeVolume).put("source", s.source)
 
     private fun technicalFromJson(o: JSONObject) = TechnicalSignal(
         o.optString("symbol"), o.optString("name"), o.optString("market"), o.optDouble("price"),
         o.optDouble("sma20"), o.optDouble("sma50"), o.optDouble("rsi14"), o.optDouble("change5d"),
         o.optDouble("averageVolume20"), o.optLong("latestVolume"), o.optString("label"),
-        o.optString("explanation"), o.optLong("calculatedAt")
+        o.optString("explanation"), o.optLong("calculatedAt"),
+        o.optDouble("ema9", 0.0), o.optDouble("atr14", 0.0), o.optDouble("support20", 0.0),
+        o.optDouble("resistance20", 0.0), o.optDouble("relativeVolume", 0.0),
+        o.optString("source", "Yahoo Finance")
     )
 
     private fun newsJson(n: MarketNews) = JSONObject()

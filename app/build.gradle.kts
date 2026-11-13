@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+val eodhdApiKeyB64 = java.util.Base64.getEncoder().encodeToString(
+    (System.getenv("EODHD_API_KEY") ?: "").toByteArray(Charsets.UTF_8)
+)
+
 android {
     namespace = "pl.marketradar.app"
     compileSdk {
@@ -12,15 +16,16 @@ android {
         applicationId = "pl.marketradar.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 5
-        versionName = "1.2.0"
+        versionCode = 6
+        versionName = "1.3.0"
+        buildConfigField("String", "EODHD_API_KEY_B64", "\"$eodhdApiKeyB64\"")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 }
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
