@@ -227,8 +227,8 @@ fun MarketRadarApp(context: Context) {
                         busy = busy,
                         status = status,
                         onSave = { twelve, finnhub, threshold ->
-                            SecretVault.save(context, "twelve_data_key", twelve)
-                            SecretVault.save(context, "finnhub_key", finnhub)
+                            if (twelve.isNotBlank()) SecretVault.save(context, "twelve_data_key", twelve)
+                            if (finnhub.isNotBlank()) SecretVault.save(context, "finnhub_key", finnhub)
                             MarketStore.setThreshold(context, threshold)
                             twelveConfigured = SecretVault.has(context, "twelve_data_key")
                             finnhubConfigured = SecretVault.has(context, "finnhub_key")
