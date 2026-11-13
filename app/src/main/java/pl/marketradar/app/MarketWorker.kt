@@ -89,7 +89,8 @@ object MarketNotifications {
 object MarketRefresher {
     suspend fun refreshQuotes(
         context: Context,
-        apiKey: String,
+        twelveDataKey: String,
+        finnhubKey: String,
         instruments: List<Instrument>,
         onProgress: suspend (Int, Int, String) -> Unit = { _, _, _ -> }
     ): List<Quote> = withContext(Dispatchers.IO) {
@@ -97,7 +98,16 @@ object MarketRefresher {
         instruments.forEachIndexed { index, instrument ->
             try {
                 val old = MarketStore.quote(context, instrument.symbol)
-                val quote = TwelveDataClient.quote(apiKey, instrument)
+                val quote = when {
+                    instrument.market == "USA" && finnhubKey.isNotBlank() ->
+                        FinnhubClient.quote(finnhubKey, instrument)
+                    twelveDataKey.isNotBlank() ->
+                        TwelveDataClient.quote(twelveDataKey, instrument)
+                    instrument.market == "USA" ->
+                        throw IllegalStateException("Dodaj token Finnhub dla amerykańskich notowań.")
+                    else ->
+                        throw IllegalStateException("Europa/GPW wymaga Twelve Data z licencją internal display (Grow lub wyższą). Darmowy Basic nie pozwala wyświetlać kursów w aplikacji.")
+                }
                 MarketStore.saveQuote(context, quote)
                 results.add(quote)
                 evaluateAlerts(context, old, quote)
@@ -105,7 +115,6 @@ object MarketRefresher {
             } catch (e: Exception) {
                 onProgress(index + 1, instruments.size, "${instrument.symbol}: ${e.message ?: "błąd danych"}")
             }
-            if (index < instruments.lastIndex) delay(7_700L)
         }
         results
     }
@@ -148,7 +157,7 @@ object MarketRefresher {
             val severity = if (level >= 5.0) "PILNY" else "SILNY RUCH"
             val key = "${LocalDate.now()}|${level}|$direction"
             if (MarketStore.lastAlertKey(context, current.symbol) == key) return@forEach
-            val detail = "${current.symbol}: ${if (current.percentChange >= 0) "+" else ""}${current.percentChange.fmt(2)}% od poprzedniego zamknięcia. Kurs ${current.price.fmt(2)} ${current.currency}. Źródło: Twelve Data, czas źródłowy: ${current.timestamp}."
+            val detail = "${current.symbol}: ${if (current.percentChange >= 0) "+" else ""}${current.percentChange.fmt(2)}% od poprzedniego zamknięcia. Kurs ${current.price.fmt(2)} ${current.currency}. Źródło: ${current.source}, czas źródłowy: ${current.timestamp}."
             MarketStore.addAlert(context, RadarAlert(current.symbol, "$severity: ${current.name}", detail, severity, System.currentTimeMillis()))
             MarketStore.setLastAlertKey(context, current.symbol, key)
             MarketNotifications.post(
@@ -167,11 +176,12 @@ class MarketFastScanWorker(
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        val key = SecretVault.read(applicationContext, "twelve_data_key")
-        if (key.isBlank()) return Result.success()
+        val twelveKey = SecretVault.read(applicationContext, "twelve_data_key")
+        val finnhubKey = SecretVault.read(applicationContext, "finnhub_key")
+        if (twelveKey.isBlank() && finnhubKey.isBlank()) return Result.success()
         return try {
             val priority = DefaultWatchlist.load(applicationContext).filter { it.symbol in PRIORITY_SYMBOLS }
-            MarketRefresher.refreshQuotes(applicationContext, key, priority)
+            MarketRefresher.refreshQuotes(applicationContext, twelveKey, finnhubKey, priority)
             applicationContext.getSharedPreferences("market_radar", Context.MODE_PRIVATE)
                 .edit().putLong("last_priority_scan", System.currentTimeMillis()).apply()
             Result.success()
@@ -186,11 +196,12 @@ class MarketScanWorker(
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        val key = SecretVault.read(applicationContext, "twelve_data_key")
-        if (key.isBlank()) return Result.success()
+        val twelveKey = SecretVault.read(applicationContext, "twelve_data_key")
+        val finnhubKey = SecretVault.read(applicationContext, "finnhub_key")
+        if (twelveKey.isBlank() && finnhubKey.isBlank()) return Result.success()
         return try {
             val rest = DefaultWatchlist.load(applicationContext).filterNot { it.symbol in PRIORITY_SYMBOLS }
-            MarketRefresher.refreshQuotes(applicationContext, key, rest)
+            MarketRefresher.refreshQuotes(applicationContext, twelveKey, finnhubKey, rest)
             applicationContext.getSharedPreferences("market_radar", Context.MODE_PRIVATE)
                 .edit().putLong("last_background_scan", System.currentTimeMillis()).apply()
             Result.success()
