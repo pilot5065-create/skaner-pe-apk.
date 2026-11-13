@@ -86,24 +86,24 @@ fun MarketRadarApp(context: Context) {
     }
 
     suspend fun updateQuotes() {
-        if (apiKey.isBlank()) {
-            status = "Najpierw dodaj klucz Twelve Data w Ustawieniach."
+        if (apiKey.isBlank() && finnhubKey.isBlank()) {
+            status = "Dodaj token Finnhub dla USA albo licencjonowany klucz Twelve Data dla Europy/GPW."
             showSettings = true
             return
         }
         busy = true
-        status = "Pobieranie notowań z Twelve Data…"
+        status = "Pobieranie kursów z właściwych źródeł…"
         progress = "Przygotowanie skanera"
         try {
-            val done = MarketRefresher.refreshQuotes(context, apiKey, instruments) { current, total, symbol ->
+            val done = MarketRefresher.refreshQuotes(context, apiKey, finnhubKey, instruments) { current, total, symbol ->
                 withContext(Dispatchers.Main) {
-                    progress = "$current / $total • $symbol"
-                    status = "Skanowanie watchlisty • limit bezpłatny: 8 zapytań/min"
+                    progress = "${current} / ${total} • ${symbol}"
+                    status = "USA: Finnhub • Europa/GPW: Twelve Data z licencją internal display"
                 }
             }
             reloadLocal()
             val count = done.size
-            status = "Zaktualizowano $count z ${instruments.size} instrumentów. Źródło: Twelve Data."
+            status = "Zaktualizowano ${count} z ${instruments.size} instrumentów. Brak danych może oznaczać brak dostępu lub symbolu u dostawcy."
             progress = "Ostatni skan: ${clock(System.currentTimeMillis())}"
         } catch (e: Exception) {
             status = e.message ?: "Nie udało się pobrać notowań."
@@ -156,8 +156,8 @@ fun MarketRadarApp(context: Context) {
         }
     }
 
-    LaunchedEffect(twelveConfigured) {
-        if (twelveConfigured && quotes.isEmpty() && !busy) updateQuotes()
+    LaunchedEffect(twelveConfigured, finnhubConfigured) {
+        if ((twelveConfigured || finnhubConfigured) && quotes.isEmpty() && !busy) updateQuotes()
     }
 
     MaterialTheme(
@@ -327,7 +327,7 @@ private fun RadarScreen(
             }
         }
         if (quotes.isEmpty()) {
-            item { EmptyCard("Brak notowań", "Wklej klucz Twelve Data w Ustawieniach i naciśnij Skanuj. Nie wyświetlam fikcyjnych ani przykładowych cen.") }
+            item { EmptyCard("Brak notowań", "Dodaj token Finnhub dla rynku USA. Europa i GPW wymagają Twelve Data z prawem internal display. Nie pokazuję fikcyjnych ani przykładowych cen.") }
         } else {
             items(movers, key = { it.symbol }) { quote ->
                 QuoteCard(quote)
@@ -372,7 +372,7 @@ private fun QuoteCard(q: Quote) {
                 SmallMetric("Wolumen", q.volume.compact())
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Twelve Data • ${q.timestamp}", color = Muted, fontSize = 9.sp, modifier = Modifier.weight(1f))
+                Text("${q.source} • ${q.timestamp}", color = Muted, fontSize = 9.sp, modifier = Modifier.weight(1f))
                 Text("Pobrano ${clock(q.fetchedAt)}", color = Muted, fontSize = 9.sp)
             }
         }
@@ -591,9 +591,9 @@ private fun SettingsScreen(
         }
         item {
             ProviderCard(
-                name = "Twelve Data — ceny i historia",
-                status = if (twelveConfigured) "Klucz zapisany na urządzeniu" else "Wymagany klucz API",
-                note = "Bezpłatny Basic: 8 kredytów/min i 800/dzień; real-time dla USA, dane EOD dla globalnych akcji i ETF-ów. Każdy symbol kosztuje kredyty.",
+                name = "Twelve Data — Europa/GPW i historia",
+                status = if (twelveConfigured) "Klucz zapisany na urządzeniu" else "Opcjonalny — plan z internal display",
+                note = "Do wyświetlania kursów w aplikacji potrzebny jest plan z prawem internal display. Basic Free jest non-display. Grow: globalne akcje/ETF EOD; live Europa wymaga wyższego planu i/lub danych giełdowych.",
                 linkLabel = "Załóż konto / pobierz klucz",
                 onOpen = { onOpen("https://twelvedata.com/pricing") }
             )
@@ -606,9 +606,9 @@ private fun SettingsScreen(
         }
         item {
             ProviderCard(
-                name = "Finnhub — wiadomości",
-                status = if (finnhubConfigured) "Token zapisany na urządzeniu" else "Opcjonalny token do newsów",
-                note = "Kanał wiadomości ogólnych i wybrane wiadomości spółkowe. Dostępne endpointy i limity zależą od planu Finnhub.",
+                name = "Finnhub — USA realtime i wiadomości",
+                status = if (finnhubConfigured) "Token zapisany na urządzeniu" else "Główne źródło dla USA — token wymagany",
+                note = "Notowania USA i newsy ogólne/spółkowe. Używaj wyłącznie w granicach planu osobistego Finnhub; nie udostępniaj aplikacji ani danych innym osobom.",
                 linkLabel = "Dokumentacja / rejestracja",
                 onOpen = { onOpen("https://finnhub.io/") }
             )
@@ -651,12 +651,12 @@ private fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Navy)
             ) { Text("Zapisz konfigurację") }
-            OutlinedButton(onClick = onRefresh, enabled = !busy && twelveConfigured, modifier = Modifier.fillMaxWidth()) { Text("Uruchom skan teraz") }
+            OutlinedButton(onClick = onRefresh, enabled = !busy && (twelveConfigured || finnhubConfigured), modifier = Modifier.fillMaxWidth()) { Text("Uruchom skan teraz") }
             Text(status, color = Muted, fontSize = 10.sp)
         }
         item {
             Text("ŹRÓDŁA PIERWOTNE I ZASADY", color = Green, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Text("USA: Twelve Data + Finnhub + dokumenty SEC EDGAR. Polska: kursy przez Twelve Data; komunikaty emitentów przez ESPI/EBI udostępniane m.in. przez PAP Biznes. Europa: zakres i opóźnienie zgodne z licencją Twelve Data.", color = Muted, fontSize = 11.sp)
+            Text("USA: Finnhub (notowania i newsy), dokumenty SEC EDGAR jako źródła pierwotne. Europa/GPW: Twelve Data tylko z licencją internal display; EOD lub live zależnie od planu i dodatków giełdowych. Komunikaty polskich emitentów: ESPI/EBI przez PAP Biznes / oficjalne raporty emitentów.", color = Muted, fontSize = 11.sp)
             Text("Aplikacja nie składa zleceń, nie łączy się z rachunkami maklerskimi i nie zna Twoich rzeczywistych pozycji, dopóki sam ich nie wpiszesz.", color = Muted, fontSize = 10.sp)
         }
     }
