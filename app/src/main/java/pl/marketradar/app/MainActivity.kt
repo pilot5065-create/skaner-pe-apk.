@@ -632,7 +632,7 @@ private fun SettingsScreen(
             ProviderCard(
                 name = "Twelve Data — Europa/GPW i historia",
                 status = if (twelveConfigured) "Klucz zapisany na urządzeniu" else "Opcjonalny — plan z internal display",
-                note = "Do wyświetlania kursów w aplikacji potrzebny jest plan z prawem internal display. Basic Free jest non-display. Grow: globalne akcje/ETF EOD; Pro: live na wybranych rynkach UE. Uwaga: katalog Twelve Data wskazuje GPW/XWAR dopiero od planu Ultra.",
+                note = "Do wyświetlania kursów w aplikacji potrzebny jest plan z prawem internal display. Basic Free jest non-display. Cennik indywidualny: Grow 79 USD/mies. (globalne EOD), Pro 229 USD/mies. (live na wybranych rynkach UE), Ultra 999 USD/mies. GPW/XWAR wymaga Ultra. Ceny mogą się zmienić.",
                 linkLabel = "Załóż konto / pobierz klucz",
                 onOpen = { onOpen("https://twelvedata.com/pricing") }
             )
@@ -675,7 +675,7 @@ private fun SettingsScreen(
             Surface(color = Panel, shape = RoundedCornerShape(14.dp)) {
                 Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("HARMONOGRAM", color = Green, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text("Priorytet: NVDA, SMCI, AMD i AVGO co 15 minut. Pozostałe 18 instrumentów co 90 minut. Android może opóźniać zadania w tle przez oszczędzanie baterii.", color = Color.White, fontSize = 11.sp)
+                    Text("Priorytet: NVDA, SMCI, AMD i AVGO co 15 minut. Pozostałe 18 instrumentów co 90 minut. Wiadomości Finnhub odświeżane co 60 minut. Android może opóźniać zadania w tle przez oszczędzanie baterii.", color = Color.White, fontSize = 11.sp)
                     Text("Szacunkowo około 672 zapytań cenowych/dzień przy pełnym harmonogramie. Analiza techniczna pobiera historię oddzielnie i zapisuje cache raz dziennie; ręczne skany zużywają dodatkowe kredyty.", color = Muted, fontSize = 10.sp)
                 }
             }
