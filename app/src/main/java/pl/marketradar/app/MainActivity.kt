@@ -66,7 +66,7 @@ fun MarketRadarApp(context: Context) {
     var alerts by remember { mutableStateOf(MarketStore.alerts(context)) }
     var holdings by remember { mutableStateOf(MarketStore.loadHoldings(context)) }
     var busy by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("Dane lokalne. Połącz dostawcę, aby pobrać notowania.") }
+    var status by remember { mutableStateOf("Uruchamiam bezpłatny skaner Yahoo Finance…") }
     var progress by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var twelveConfigured by remember { mutableStateOf(SecretVault.has(context, "twelve_data_key")) }
@@ -86,19 +86,14 @@ fun MarketRadarApp(context: Context) {
     }
 
     suspend fun updateQuotes() {
-        if (apiKey.isBlank() && finnhubKey.isBlank()) {
-            status = "Dodaj token Finnhub dla USA albo licencjonowany klucz Twelve Data dla Europy/GPW."
-            showSettings = true
-            return
-        }
         busy = true
-        status = "Pobieranie kursów z właściwych źródeł…"
+        status = "Pobieranie bezpłatnych notowań Yahoo Finance; Finnhub/Twelve Data są źródłami zapasowymi…"
         progress = "Przygotowanie skanera"
         try {
             val done = MarketRefresher.refreshQuotes(context, apiKey, finnhubKey, instruments) { current, total, symbol ->
                 withContext(Dispatchers.Main) {
                     progress = "${current} / ${total} • ${symbol}"
-                    status = "USA: Finnhub • Europa/GPW: Twelve Data z licencją internal display"
+                    status = "Źródło podstawowe: Yahoo Finance (bez klucza); zapasowo Finnhub / Twelve Data, jeśli skonfigurowane."
                 }
             }
             reloadLocal()
@@ -113,13 +108,8 @@ fun MarketRadarApp(context: Context) {
     }
 
     suspend fun updateTechnical() {
-        if (apiKey.isBlank()) {
-            status = "Dodaj klucz Twelve Data w Ustawieniach."
-            showSettings = true
-            return
-        }
         busy = true
-        status = "Liczenie analizy technicznej z dziennych świec…"
+        status = "Liczenie analizy technicznej z bezpłatnej historii Yahoo Finance…"
         progress = "Pobieranie historii"
         try {
             val done = MarketRefresher.refreshTechnical(context, apiKey, instruments) { current, total, symbol ->
@@ -156,8 +146,8 @@ fun MarketRadarApp(context: Context) {
         }
     }
 
-    LaunchedEffect(twelveConfigured, finnhubConfigured) {
-        if ((twelveConfigured || finnhubConfigured) && quotes.isEmpty() && !busy) updateQuotes()
+    LaunchedEffect(Unit) {
+        if (quotes.isEmpty() && !busy) updateQuotes()
     }
 
     MaterialTheme(
