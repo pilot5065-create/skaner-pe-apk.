@@ -256,7 +256,7 @@ fun MarketRadarApp(context: Context) {
             AlertDialog(
                 onDismissRequest = { showSettings = false },
                 title = { Text("Konfiguracja dostawców") },
-                text = { Text("Dodaj token Finnhub do notowań USA i wiadomości. Twelve Data jest opcjonalne dla Europy/GPW i historii technicznej — wymagany plan z prawem internal display. Klucze wklej tylko w Ustawieniach aplikacji.") },
+                text = { Text("Skaner kursów i analiza techniczna uruchamiają się przez Yahoo Finance bez tokenu. Dodaj token Finnhub, jeśli chcesz dodatkowe źródło notowań USA i wiadomości.") },
                 confirmButton = { TextButton(onClick = { showSettings = false; tab = "Ustawienia" }) { Text("Otwórz ustawienia") } }
             )
         }
@@ -328,7 +328,7 @@ private fun RadarScreen(
             }
         }
         if (quotes.isEmpty()) {
-            item { EmptyCard("Brak notowań", "Dodaj token Finnhub dla rynku USA. Europa i GPW wymagają Twelve Data z prawem internal display i dostępem do danej giełdy. Nie pokazuję fikcyjnych ani przykładowych cen.") }
+            item { EmptyCard("Brak notowań", "Yahoo Finance nie zwrócił danych. Sprawdź symbol lub połączenie. Opcjonalnie dodaj darmowy token Finnhub jako zapasowe źródło USA.") }
         } else {
             items(movers, key = { it.symbol }) { quote ->
                 QuoteCard(quote)
@@ -454,7 +454,7 @@ private fun TechnicalScreen(values: List<TechnicalSignal>, busy: Boolean, status
                         SmallMetric("5 sesji", "${if (signal.change5d >= 0) "+" else ""}${signal.change5d.fmt(1)}%")
                     }
                     Text(signal.explanation, color = Muted, fontSize = 11.sp)
-                    Text("Historia dzienna z Twelve Data • ${clock(signal.calculatedAt)}", color = Muted, fontSize = 9.sp)
+                    Text("Historia dzienna Yahoo Finance • ${clock(signal.calculatedAt)}", color = Muted, fontSize = 9.sp)
                 }
             }
         }
@@ -629,13 +629,13 @@ private fun SettingsScreen(
     ) {
         item {
             Text("USTAWIENIA I DOSTAWCY", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text("Klucze API są szyfrowane kluczem Android Keystore i nie są wysyłane do mojego repozytorium.", color = Muted, fontSize = 11.sp)
+            Text("Skaner działa bez klucza przez Yahoo Finance. Dodatkowe klucze Finnhub/Twelve Data są szyfrowane w Android Keystore.", color = Muted, fontSize = 11.sp)
         }
         item {
             ProviderCard(
-                name = "Twelve Data — Europa/GPW i historia",
-                status = if (twelveConfigured) "Klucz zapisany na urządzeniu" else "Opcjonalny — plan z internal display",
-                note = "Do wyświetlania kursów w aplikacji potrzebny jest plan z prawem internal display. Basic Free jest non-display. Cennik indywidualny: Grow 79 USD/mies. (globalne EOD), Pro 229 USD/mies. (live na wybranych rynkach UE), Ultra 999 USD/mies. GPW/XWAR wymaga Ultra. Ceny mogą się zmienić.",
+                name = "Twelve Data — opcjonalny dostawca zapasowy",
+                status = if (twelveConfigured) "Klucz zapisany na urządzeniu" else "Nie jest potrzebny do bezpłatnego skanowania",
+                note = "Nie jest wymagany do podstawowego skanowania. Używaj tylko jeśli masz plan z prawem internal display i dostępem do danej giełdy. Darmowy Basic jest non-display.",
                 linkLabel = "Załóż konto / pobierz klucz",
                 onOpen = { onOpen("https://twelvedata.com/pricing") }
             )
@@ -648,9 +648,9 @@ private fun SettingsScreen(
         }
         item {
             ProviderCard(
-                name = "Finnhub — USA realtime i wiadomości",
-                status = if (finnhubConfigured) "Token zapisany na urządzeniu" else "Główne źródło dla USA — token wymagany",
-                note = "Notowania USA i newsy ogólne/spółkowe. Używaj wyłącznie w granicach planu osobistego Finnhub; nie udostępniaj aplikacji ani danych innym osobom.",
+                name = "Finnhub — dodatkowe źródło USA i wiadomości",
+                status = if (finnhubConfigured) "Token zapisany na urządzeniu" else "Opcjonalny bezpłatny token — źródło zapasowe",
+                note = "Bezpłatny plan osobisty z kluczem: dodatkowe notowania USA i wiadomości. Limit i zakres zależą od planu. Nie udostępniaj aplikacji ani danych innym osobom.",
                 linkLabel = "Dokumentacja / rejestracja",
                 onOpen = { onOpen("https://finnhub.io/") }
             )
@@ -693,12 +693,12 @@ private fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Navy)
             ) { Text("Zapisz konfigurację") }
-            OutlinedButton(onClick = onRefresh, enabled = !busy && (twelveConfigured || finnhubConfigured), modifier = Modifier.fillMaxWidth()) { Text("Uruchom skan teraz") }
+            OutlinedButton(onClick = onRefresh, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Uruchom skan teraz") }
             Text(status, color = Muted, fontSize = 10.sp)
         }
         item {
             Text("ŹRÓDŁA PIERWOTNE I ZASADY", color = Green, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Text("USA: Finnhub (notowania i newsy), dokumenty SEC EDGAR jako źródła pierwotne. Europa/GPW: Twelve Data tylko z licencją internal display i dostępem giełdowym; Xetra/Euronext i GPW mają różne progi planów (GPW/XWAR: Ultra). Komunikaty polskich emitentów: ESPI/EBI przez PAP Biznes / oficjalne raporty emitentów.", color = Muted, fontSize = 11.sp)
+            Text("Podstawowe kursy: Yahoo Finance Chart API (nieoficjalny endpoint bez klucza; może się zmieniać i być ograniczany). Zapasowo USA: Finnhub Free (wymaga darmowego tokenu). Dodatkowo Twelve Data wyłącznie z licencją internal display. Pokrycie giełd zależy od symbolu i dostawcy.", color = Muted, fontSize = 11.sp)
             Text("Aplikacja nie składa zleceń, nie łączy się z rachunkami maklerskimi i nie zna Twoich rzeczywistych pozycji, dopóki sam ich nie wpiszesz.", color = Muted, fontSize = 10.sp)
         }
     }
