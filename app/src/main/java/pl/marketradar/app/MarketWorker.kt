@@ -114,7 +114,7 @@ object MarketRefresher {
                     instrument.market == "USA" ->
                         throw IllegalStateException("Dodaj token Finnhub dla amerykańskich notowań.")
                     else ->
-                        throw IllegalStateException("Europa/GPW wymaga Twelve Data z licencją internal display (Grow lub wyższą). Darmowy Basic nie pozwala wyświetlać kursów w aplikacji.")
+                        throw IllegalStateException("Europa/GPW wymaga Twelve Data z licencją internal display i uprawnieniem do konkretnej giełdy. Darmowy Basic nie pozwala wyświetlać kursów; katalog wskazuje GPW/XWAR od planu Ultra.")
                 }
                 MarketStore.saveQuote(context, quote)
                 results.add(quote)
