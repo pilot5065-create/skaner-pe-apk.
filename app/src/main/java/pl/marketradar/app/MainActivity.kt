@@ -405,6 +405,9 @@ private fun AlertCard(a: RadarAlert) {
 @Composable
 private fun TechnicalScreen(values: List<TechnicalSignal>, busy: Boolean, status: String, onRefresh: () -> Unit) {
     val sorted = values.sortedByDescending { signalRank(it.label) }
+    val monthlyCandidates = values.filter {
+        it.label == "Trend wzrostowy" || it.label == "Możliwy pullback w trendzie"
+    }.sortedByDescending { signalRank(it.label) }.take(5)
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -419,6 +422,17 @@ private fun TechnicalScreen(values: List<TechnicalSignal>, busy: Boolean, status
             }
             Text(status, color = Muted, fontSize = 10.sp)
         }
+        item {
+            Text("LISTA OBSERWACYJNA • 30 DNI", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("Automatyczny filtr techniczny dla Twojej watchlisty. To kandydaci do dalszej analizy, nie rekomendacje ani zlecenia.", color = Muted, fontSize = 10.sp)
+        }
+        if (monthlyCandidates.isEmpty()) {
+            item { EmptyCard("Brak potwierdzonych układów", "Na podstawie ostatnich danych dziennych nie ma obecnie kandydatów spełniających reguły trendu. Brak transakcji też jest prawidłową decyzją.") }
+        }
+        items(monthlyCandidates, key = { "monthly-${it.symbol}" }) { signal ->
+            MonthlyIdeaCard(signal)
+        }
+        item { Text("PEŁNA ANALIZA TECHNICZNA", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
         if (values.isEmpty()) {
             item { EmptyCard("Brak analizy", "Pierwsze przeliczenie pobiera 60 dziennych świec dla każdego instrumentu. Wykonuj je najwyżej raz dziennie, aby oszczędzać limity API.") }
         }
@@ -444,6 +458,31 @@ private fun TechnicalScreen(values: List<TechnicalSignal>, busy: Boolean, status
             }
         }
         item { Text("Reguły są mechaniczne i opisowe. Nie uwzględniają spreadu, płynności, wyników, wyceny ani Twojej ceny wejścia. Nie są automatycznym sygnałem kupna/sprzedaży.", color = Muted, fontSize = 10.sp) }
+    }
+}
+
+@Composable
+private fun MonthlyIdeaCard(signal: TechnicalSignal) {
+    val continuation = signal.label == "Trend wzrostowy"
+    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(15.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("${signal.symbol} • ${signal.name}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(if (continuation) "Kontynuacja trendu" else "Możliwy pullback", color = if (continuation) Green else Blue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                Text("${signal.price.priceFmt()}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                if (continuation)
+                    "Warunek obserwacji: cena utrzymuje się nad SMA20, a SMA20 pozostaje nad SMA50. Szukaj spokojnego retestu SMA20, nie kupuj świecy po gwałtownym wybiciu."
+                else
+                    "Warunek obserwacji: cena utrzymuje się nad SMA50, ale układ wymaga odzyskania SMA20 i potwierdzenia zamknięciem sesji."
+                , color = Muted, fontSize = 11.sp
+            )
+            Text("Unieważnienie scenariusza: dzienne zamknięcie poniżej SMA50. RSI14: ${signal.rsi14.fmt(1)} • zmiana 5 sesji: ${signal.change5d.fmt(1)}%.", color = Amber, fontSize = 10.sp)
+            Text("Wyłącznie filtr techniczny. Przed transakcją sprawdź wyniki, kalendarz, newsy, płynność i ryzyko pozycji.", color = Muted, fontSize = 10.sp)
+        }
     }
 }
 
