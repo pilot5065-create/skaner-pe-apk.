@@ -149,8 +149,9 @@ object YahooFinanceClient {
             }
         }
         if (closes.size < 50) throw IllegalStateException("Yahoo Finance zwrócił mniej niż 50 świec dla ${instrument.symbol}")
-        val ordered = closes.asReversed()
-        val orderedVolumes = volumes.asReversed()
+        // Yahoo chart candles arrive oldest-to-newest; preserve that order for rolling indicators.
+        val ordered = closes
+        val orderedVolumes = volumes
         val sma20 = ordered.takeLast(20).average()
         val sma50 = ordered.takeLast(50).average()
         val deltas = (1 until minOf(15, ordered.size)).map { ordered[ordered.size - it] - ordered[ordered.size - it - 1] }
