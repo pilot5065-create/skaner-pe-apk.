@@ -255,7 +255,7 @@ fun MarketRadarApp(context: Context) {
             AlertDialog(
                 onDismissRequest = { showSettings = false },
                 title = { Text("Konfiguracja dostawców") },
-                text = { Text("Aby Market Radar pobierał prawdziwe dane, dodaj klucz Twelve Data do notowań. Token Finnhub jest potrzebny do wiadomości. Klucze można wkleić w zakładce Ustawienia.") },
+                text = { Text("Dodaj token Finnhub do notowań USA i wiadomości. Twelve Data jest opcjonalne dla Europy/GPW i historii technicznej — wymagany plan z prawem internal display. Klucze wklej tylko w Ustawieniach aplikacji.") },
                 confirmButton = { TextButton(onClick = { showSettings = false; tab = "Ustawienia" }) { Text("Otwórz ustawienia") } }
             )
         }
@@ -304,7 +304,7 @@ private fun RadarScreen(
                     Text("STATUS SKANERA", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     Text(status, color = Color.White, fontSize = 12.sp)
                     if (progress.isNotBlank()) Text(progress, color = Green, fontSize = 11.sp)
-                    Text("USA: real-time na planie z dostępem do danych live. Europa i GPW: EOD w Twelve Data Basic; live zależy od licencji i planu.", color = Muted, fontSize = 10.sp)
+                    Text("USA: Finnhub (zakres i opóźnienie zależą od tokenu oraz uprawnień). Europa/GPW: Twelve Data wyłącznie z prawem internal display.", color = Muted, fontSize = 10.sp)
                 }
             }
         }
@@ -369,7 +369,7 @@ private fun QuoteCard(q: Quote) {
                 SmallMetric("Zmiana", "${if (q.change >= 0) "+" else ""}${q.change.fmt(2)}")
                 SmallMetric("High", q.dayHigh.priceFmt())
                 SmallMetric("Low", q.dayLow.priceFmt())
-                SmallMetric("Wolumen", q.volume.compact())
+                SmallMetric("Wolumen", if (q.volume > 0) q.volume.compact() else "—")
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("${q.source} • ${q.timestamp}", color = Muted, fontSize = 9.sp, modifier = Modifier.weight(1f))
@@ -439,7 +439,7 @@ private fun TechnicalScreen(values: List<TechnicalSignal>, busy: Boolean, status
                         SmallMetric("5 sesji", "${if (signal.change5d >= 0) "+" else ""}${signal.change5d.fmt(1)}%")
                     }
                     Text(signal.explanation, color = Muted, fontSize = 11.sp)
-                    Text("Dane dzienne z Twelve Data • ${clock(signal.calculatedAt)}", color = Muted, fontSize = 9.sp)
+                    Text("Historia dzienna z Twelve Data • ${clock(signal.calculatedAt)}", color = Muted, fontSize = 9.sp)
                 }
             }
         }
@@ -683,7 +683,7 @@ private fun AddSymbolDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Un
         title = { Text("Dodaj instrument") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(symbol, { symbol = it.uppercase(Locale.US) }, label = { Text("Ticker z Twelve Data") }, singleLine = true)
+                OutlinedTextField(symbol, { symbol = it.uppercase(Locale.US) }, label = { Text("Ticker u dostawcy (np. NVDA, SAP:XETR, KRU:WSE)") }, singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     listOf("USA", "EUROPA", "GPW").forEach { m ->
                         FilterChip(selected = market == m, onClick = { market = m }, label = { Text(m) })
