@@ -147,9 +147,9 @@ object TwelveDataClient {
             closes.add(close)
             volumes.add(candle.longNumber("volume"))
         }
-        if (closes.size < 20) throw IllegalStateException("Za mało danych historycznych dla ${instrument.symbol}")
+        if (closes.size < 50) throw IllegalStateException("Dostawca zwrócił mniej niż 50 świec — nie można rzetelnie obliczyć SMA50 dla ${instrument.symbol}.")
         val sma20 = closes.take(20).average()
-        val sma50 = if (closes.size >= 50) closes.take(50).average() else closes.average()
+        val sma50 = closes.take(50).average()
         val gains = mutableListOf<Double>()
         val losses = mutableListOf<Double>()
         for (i in 0 until minOf(14, closes.size - 1)) {
