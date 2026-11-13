@@ -103,19 +103,35 @@ object MarketRefresher {
         onProgress: suspend (Int, Int, String) -> Unit = { _, _, _ -> }
     ): List<Quote> = withContext(Dispatchers.IO) {
         val results = mutableListOf<Quote>()
+        val eodhdKey = BundledEodhdKey.read(context)
+        var eodhdCallsLeft = if (eodhdKey.isNotBlank()) runCatching { EodhdClient.usage(eodhdKey).remainingCalls }.getOrDefault(0) else 0
+        var eodhdBlocked = false
+
         instruments.forEachIndexed { index, instrument ->
             try {
                 val old = MarketStore.quote(context, instrument.symbol)
                 val quote = try {
-                    // Yahoo Finance is the default no-key fallback for the whole watchlist.
                     YahooFinanceClient.quote(instrument)
                 } catch (yahooError: Exception) {
-                    when {
-                        instrument.market == "USA" && finnhubKey.isNotBlank() ->
-                            FinnhubClient.quote(finnhubKey, instrument)
-                        twelveDataKey.isNotBlank() ->
-                            TwelveDataClient.quote(twelveDataKey, instrument)
-                        else -> throw IllegalStateException("Yahoo Finance: ${yahooError.message ?: "brak danych"}. Brak dodatkowego źródła dla tego instrumentu; dodaj token Finnhub (USA) lub licencjonowany Twelve Data (Europa/GPW).")
+                    var backup: Quote? = null
+                    if (!eodhdBlocked && eodhdKey.isNotBlank() && eodhdCallsLeft > 0) {
+                        eodhdCallsLeft -= 1
+                        try {
+                            backup = EodhdClient.quote(eodhdKey, instrument)
+                        } catch (e: Exception) {
+                            val message = e.message.orEmpty()
+                            if (listOf("HTTP 401", "HTTP 402", "HTTP 403").any { message.contains(it) }) {
+                                eodhdBlocked = true
+                                eodhdCallsLeft = 0
+                            }
+                        }
+                    }
+                    backup ?: when {
+                        instrument.market == "USA" && finnhubKey.isNotBlank() -> FinnhubClient.quote(finnhubKey, instrument)
+                        twelveDataKey.isNotBlank() -> TwelveDataClient.quote(twelveDataKey, instrument)
+                        else -> throw IllegalStateException(
+                            "Yahoo Finance: ${yahooError.message ?: "brak danych"}. EODHD backup: limit lub brak dostępu do instrumentu. Brak kolejnego źródła."
+                        )
                     }
                 }
                 MarketStore.saveQuote(context, quote)
@@ -137,6 +153,10 @@ object MarketRefresher {
     ): List<TechnicalSignal> = withContext(Dispatchers.IO) {
         val today = LocalDate.now().toString()
         val results = mutableListOf<TechnicalSignal>()
+        val eodhdKey = BundledEodhdKey.read(context)
+        var eodhdCallsLeft = if (eodhdKey.isNotBlank()) runCatching { EodhdClient.usage(eodhdKey).remainingCalls }.getOrDefault(0) else 0
+        var eodhdBlocked = false
+
         instruments.forEachIndexed { index, instrument ->
             if (MarketStore.technicalDate(context, instrument.symbol) == today) {
                 MarketStore.allTechnical(context).firstOrNull { it.symbol == instrument.symbol }?.let { results.add(it) }
@@ -147,8 +167,21 @@ object MarketRefresher {
                 val signal = try {
                     YahooFinanceClient.technical(instrument)
                 } catch (yahooError: Exception) {
-                    if (apiKey.isNotBlank()) TwelveDataClient.technical(apiKey, instrument)
-                    else throw IllegalStateException("Yahoo Finance: ${yahooError.message ?: "brak historii"}. Nie ma klucza alternatywnego dostawcy.")
+                    var backup: TechnicalSignal? = null
+                    if (!eodhdBlocked && eodhdKey.isNotBlank() && eodhdCallsLeft > 0) {
+                        eodhdCallsLeft -= 1
+                        try {
+                            backup = EodhdClient.technical(eodhdKey, instrument)
+                        } catch (e: Exception) {
+                            val message = e.message.orEmpty()
+                            if (listOf("HTTP 401", "HTTP 402", "HTTP 403").any { message.contains(it) }) {
+                                eodhdBlocked = true
+                                eodhdCallsLeft = 0
+                            }
+                        }
+                    }
+                    backup ?: if (apiKey.isNotBlank()) TwelveDataClient.technical(apiKey, instrument)
+                    else throw IllegalStateException("Yahoo Finance: ${yahooError.message ?: "brak historii"}. EODHD: brak dostępu lub limit.")
                 }
                 MarketStore.saveTechnical(context, signal)
                 MarketStore.setTechnicalDate(context, instrument.symbol, today)

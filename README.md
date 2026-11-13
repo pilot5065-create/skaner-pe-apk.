@@ -41,3 +41,14 @@ Docelowy Android: API 37
 
 ## Podpis
 Artefakty CI są podpisane kluczem debugowym. Do aktualizacji bez odinstalowania aplikacji trzeba skonfigurować trwały klucz release signing jako sekrety GitHub Actions. Nie commituj keystore do repozytorium.
+
+
+## Market Radar 1.3.0
+
+- Jasny motyw na stałe; brak przełącznika trybu ciemnego.
+- Maksymalnie 30 ręcznie uruchomionych skanów watchlisty dziennie. Skanowanie automatyczne w tle jest od tego limitu niezależne.
+- Źródła: Yahoo Finance jako dostawca podstawowy bez tokenu, EODHD jako automatyczny backup z wbudowanym kluczem, Finnhub/Twelve Data jako opcjonalne źródła dodatkowe.
+- Przed użyciem EODHD aplikacja odczytuje limit oraz zużycie dzienne i nie wykonuje backupu po wyczerpaniu puli.
+- Analiza techniczna: SMA20, SMA50, EMA9, RSI14, ATR14, RVOL, wsparcie/opór z 20 sesji. Poziomy ATR są poglądowe.
+- Token EODHD nie jest przechowywany w repozytorium. Jest wstrzykiwany w czasie kompilacji z chronionego GitHub Actions Secret `EODHD_API_KEY`, a po pierwszym uruchomieniu zapisywany szyfrowany w Android Keystore. Sam plik APK nadal może zostać poddany analizie, dlatego nie należy go publicznie dystrybuować.
+- EODHD /real-time jest opóźnione; Yahoo Finance Chart API jest nieoficjalnym endpointem. Dane, opóźnienia i dostępność instrumentów zależą od dostawcy i planu.

@@ -24,4 +24,11 @@ class MarketRulesTest {
     @Test fun invalidThresholdIsIgnored() {
         assertFalse(MarketRules.crossesAlert(0.0, 8.0, 0.0))
     }
+
+    @Test fun manualQuotaAllowsExactlyThirtyScans() {
+        assertTrue(ManualScanQuota.canConsume(0))
+        assertTrue(ManualScanQuota.canConsume(29))
+        assertFalse(ManualScanQuota.canConsume(30))
+        assertFalse(ManualScanQuota.canConsume(31))
+    }
 }

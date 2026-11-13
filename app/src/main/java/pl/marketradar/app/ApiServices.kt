@@ -134,49 +134,24 @@ object YahooFinanceClient {
 
     fun technical(instrument: Instrument): TechnicalSignal {
         val json = chart(yahooSymbol(instrument), "6mo", "1d")
-        val meta = json.optJSONObject("meta") ?: throw IllegalStateException("Brak metadanych historii Yahoo Finance")
-        val quotes = json.optJSONObject("indicators")?.optJSONArray("quote")?.optJSONObject(0)
-            ?: throw IllegalStateException("Brak świec Yahoo Finance")
-        val raw = quotes.optJSONArray("close") ?: throw IllegalStateException("Brak cen zamknięcia Yahoo Finance")
-        val closes = mutableListOf<Double>()
-        val volumes = mutableListOf<Long>()
-        val volumeArray = quotes.optJSONArray("volume")
-        for (i in 0 until raw.length()) {
-            val close = raw.optDouble(i, Double.NaN)
-            if (close.isFinite() && close > 0) {
-                closes.add(close)
-                volumes.add(volumeArray?.optLong(i, 0L) ?: 0L)
-            }
+        val values = json.optJSONObject("indicators")?.optJSONArray("quote")?.optJSONObject(0)
+            ?: throw IllegalStateException("Brak dziennych świec Yahoo Finance dla ${instrument.symbol}")
+        val closes = values.optJSONArray("close") ?: throw IllegalStateException("Brak cen zamknięcia Yahoo Finance")
+        val highs = values.optJSONArray("high")
+        val lows = values.optJSONArray("low")
+        val volumes = values.optJSONArray("volume")
+        val timestamps = json.optJSONArray("timestamp")
+        val candles = mutableListOf<DailyCandle>()
+        for (i in 0 until closes.length()) {
+            val close = closes.optDouble(i, Double.NaN)
+            if (!close.isFinite() || close <= 0.0) continue
+            val high = highs?.optDouble(i, close)?.takeIf { it.isFinite() && it >= close } ?: close
+            val low = lows?.optDouble(i, close)?.takeIf { it.isFinite() && it > 0.0 && it <= close } ?: close
+            val epoch = timestamps?.optLong(i, 0L) ?: 0L
+            val date = if (epoch > 0L) Instant.ofEpochSecond(epoch).toString() else i.toString().padStart(5, '0')
+            candles.add(DailyCandle(date, high, low, close, volumes?.optLong(i, 0L) ?: 0L))
         }
-        if (closes.size < 50) throw IllegalStateException("Yahoo Finance zwrócił mniej niż 50 świec dla ${instrument.symbol}")
-        // Yahoo chart candles arrive oldest-to-newest; preserve that order for rolling indicators.
-        val ordered = closes
-        val orderedVolumes = volumes
-        val sma20 = ordered.takeLast(20).average()
-        val sma50 = ordered.takeLast(50).average()
-        val deltas = (1 until minOf(15, ordered.size)).map { ordered[ordered.size - it] - ordered[ordered.size - it - 1] }
-        val gains = deltas.filter { it > 0 }.sum() / 14.0
-        val losses = deltas.filter { it < 0 }.sumOf { -it } / 14.0
-        val rsi = when {
-            losses == 0.0 && gains == 0.0 -> 50.0
-            losses == 0.0 -> 100.0
-            else -> 100.0 - 100.0 / (1.0 + gains / losses)
-        }
-        val price = ordered.last()
-        val change5d = (price / ordered[ordered.size - 6] - 1.0) * 100.0
-        val avgVol = orderedVolumes.takeLast(20).dropLast(1).filter { it > 0 }.average().takeIf { it.isFinite() } ?: 0.0
-        val currentVol = orderedVolumes.lastOrNull() ?: 0L
-        val label: String
-        val explanation: String
-        when {
-            rsi >= 70.0 -> { label = "Rozgrzany – ryzyko cofnięcia"; explanation = "RSI ${rsi.fmt(1)}. Rynek jest wykupiony; nie traktuj momentum jako automatycznego sygnału kupna." }
-            price > sma20 && sma20 > sma50 && rsi in 50.0..69.9 -> { label = "Trend wzrostowy"; explanation = "Cena > SMA20 > SMA50, RSI ${rsi.fmt(1)}. Trend dodatni; zarządzaj ryzykiem." }
-            price > sma50 && rsi in 40.0..55.0 -> { label = "Możliwy pullback w trendzie"; explanation = "Cena pozostaje nad SMA50, RSI ${rsi.fmt(1)}. Czekaj na potwierdzenie odbicia." }
-            price < sma50 && rsi < 45.0 -> { label = "Trend słaby"; explanation = "Cena poniżej SMA50, RSI ${rsi.fmt(1)}. Ryzyko kontynuacji spadku jest podwyższone." }
-            else -> { label = "Neutralnie / bez przewagi"; explanation = "Brak zgodnego układu średnich i RSI." }
-        }
-        return TechnicalSignal(instrument.symbol, instrument.name, instrument.market, price, sma20, sma50, rsi,
-            change5d, avgVol, currentVol, label, explanation, System.currentTimeMillis())
+        return TechnicalCalculator.calculate(instrument, candles, "Yahoo Finance • dane dzienne")
     }
 }
 
@@ -245,66 +220,23 @@ object TwelveDataClient {
     fun technical(apiKey: String, instrument: Instrument): TechnicalSignal {
         val json = getJson(
             "/time_series",
-            mapOf("symbol" to instrument.symbol, "interval" to "1day", "outputsize" to "60", "order" to "desc"),
+            mapOf("symbol" to instrument.symbol, "interval" to "1day", "outputsize" to "120", "order" to "desc"),
             apiKey
         )
         val values = json.optJSONArray("values") ?: throw IllegalStateException("Brak historii dla ${instrument.symbol}")
-        val closes = mutableListOf<Double>()
-        val volumes = mutableListOf<Long>()
+        val candles = mutableListOf<DailyCandle>()
         for (i in 0 until values.length()) {
             val candle = values.optJSONObject(i) ?: continue
             val close = candle.number("close") ?: continue
-            closes.add(close)
-            volumes.add(candle.longNumber("volume"))
+            candles.add(DailyCandle(
+                candle.optString("datetime", i.toString().padStart(5, '0')),
+                candle.number("high") ?: close,
+                candle.number("low") ?: close,
+                close,
+                candle.longNumber("volume")
+            ))
         }
-        if (closes.size < 50) throw IllegalStateException("Dostawca zwrócił mniej niż 50 świec — nie można rzetelnie obliczyć SMA50 dla ${instrument.symbol}.")
-        val sma20 = closes.take(20).average()
-        val sma50 = closes.take(50).average()
-        val gains = mutableListOf<Double>()
-        val losses = mutableListOf<Double>()
-        for (i in 0 until minOf(14, closes.size - 1)) {
-            val delta = closes[i] - closes[i + 1]
-            if (delta >= 0) gains.add(delta) else losses.add(-delta)
-        }
-        val avgGain = gains.sum() / 14.0
-        val avgLoss = losses.sum() / 14.0
-        val rsi = when {
-            avgLoss == 0.0 && avgGain == 0.0 -> 50.0
-            avgLoss == 0.0 -> 100.0
-            else -> 100.0 - (100.0 / (1.0 + avgGain / avgLoss))
-        }
-        val change5d = if (closes.size > 5 && closes[5] != 0.0) (closes[0] / closes[5] - 1.0) * 100.0 else 0.0
-        val avgVol = volumes.drop(1).take(20).filter { it > 0 }.average().takeIf { it.isFinite() } ?: 0.0
-        val currentVol = volumes.firstOrNull() ?: 0L
-        val price = closes.first()
-        val label: String
-        val explanation: String
-        when {
-            rsi >= 70.0 -> {
-                label = "Rozgrzany – ryzyko cofnięcia"
-                explanation = "RSI ${rsi.fmt(1)}. Rynek jest wykupiony; nie traktuj momentum jako automatycznego sygnału kupna."
-            }
-            price > sma20 && sma20 > sma50 && rsi in 50.0..69.9 -> {
-                label = "Trend wzrostowy"
-                explanation = "Cena > SMA20 > SMA50, RSI ${rsi.fmt(1)}. Trend jest dodatni, ale potrzebne jest zarządzanie ryzykiem."
-            }
-            price > sma50 && rsi in 40.0..55.0 -> {
-                label = "Możliwy pullback w trendzie"
-                explanation = "Cena pozostaje nad SMA50, RSI ${rsi.fmt(1)}. Obserwuj potwierdzenie odbicia; sam układ nie wystarcza do wejścia."
-            }
-            price < sma50 && rsi < 45.0 -> {
-                label = "Trend słaby"
-                explanation = "Cena poniżej SMA50, RSI ${rsi.fmt(1)}. Ryzyko kontynuacji spadku pozostaje podwyższone."
-            }
-            else -> {
-                label = "Neutralnie / bez przewagi"
-                explanation = "Brak zgodnego układu średnich i RSI. Lepiej czekać na potwierdzenie."
-            }
-        }
-        return TechnicalSignal(
-            instrument.symbol, instrument.name, instrument.market, price, sma20, sma50, rsi,
-            change5d, avgVol, currentVol, label, explanation, System.currentTimeMillis()
-        )
+        return TechnicalCalculator.calculate(instrument, candles, "Twelve Data • dane dzienne")
     }
 
     private fun JSONObject.number(key: String): Double? {
