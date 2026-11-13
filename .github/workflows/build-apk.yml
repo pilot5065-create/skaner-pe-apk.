@@ -58,3 +58,5 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             apk-sha256.txt
           retention-days: 30
+
+# Secure build: EODHD credentials are injected only through Actions secrets.
