@@ -1,0 +1,170 @@
+package pl.marketradar.app
+
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.util.concurrent.TimeUnit
+import kotlin.math.abs
+
+object MarketScheduler {
+    private const val WORK_NAME = "market_radar_hourly_scan"
+
+    fun schedule(context: Context) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val request = PeriodicWorkRequestBuilder<MarketScanWorker>(60, TimeUnit.MINUTES)
+            .setConstraints(constraints)
+            .build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request
+        )
+    }
+}
+
+object MarketNotifications {
+    private const val CHANNEL_ID = "market_radar_alerts"
+
+    fun createChannel(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID, "Alerty rynkowe", NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Powiadomienia o silnych ruchach cen monitorowanych instrumentów"
+                enableVibration(true)
+            }
+            context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        }
+    }
+
+    fun post(context: Context, title: String, message: String, id: Int) {
+        createChannel(context)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val open = PendingIntent.getActivity(
+            context, 0, Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .build()
+        NotificationManagerCompat.from(context).notify(id, notification)
+    }
+}
+
+object MarketRefresher {
+    suspend fun refreshQuotes(
+        context: Context,
+        apiKey: String,
+        instruments: List<Instrument>,
+        onProgress: suspend (Int, Int, String) -> Unit = { _, _, _ -> }
+    ): List<Quote> = withContext(Dispatchers.IO) {
+        val results = mutableListOf<Quote>()
+        instruments.forEachIndexed { index, instrument ->
+            try {
+                val old = MarketStore.quote(context, instrument.symbol)
+                val quote = TwelveDataClient.quote(apiKey, instrument)
+                MarketStore.saveQuote(context, quote)
+                results.add(quote)
+                evaluateAlerts(context, old, quote)
+                onProgress(index + 1, instruments.size, instrument.symbol)
+            } catch (e: Exception) {
+                onProgress(index + 1, instruments.size, "${instrument.symbol}: ${e.message ?: "błąd danych"}")
+            }
+            if (index < instruments.lastIndex) delay(7_700L)
+        }
+        results
+    }
+
+    suspend fun refreshTechnical(
+        context: Context,
+        apiKey: String,
+        instruments: List<Instrument>,
+        onProgress: suspend (Int, Int, String) -> Unit = { _, _, _ -> }
+    ): List<TechnicalSignal> = withContext(Dispatchers.IO) {
+        val today = LocalDate.now().toString()
+        val results = mutableListOf<TechnicalSignal>()
+        instruments.forEachIndexed { index, instrument ->
+            try {
+                val signal = TwelveDataClient.technical(apiKey, instrument)
+                MarketStore.saveTechnical(context, signal)
+                MarketStore.setTechnicalDate(context, instrument.symbol, today)
+                results.add(signal)
+                onProgress(index + 1, instruments.size, instrument.symbol)
+            } catch (e: Exception) {
+                onProgress(index + 1, instruments.size, "${instrument.symbol}: ${e.message ?: "brak historii"}")
+            }
+            if (index < instruments.lastIndex) delay(7_700L)
+        }
+        results
+    }
+
+    private fun evaluateAlerts(context: Context, old: Quote?, current: Quote) {
+        if (old == null) return
+        val threshold = MarketStore.threshold(context)
+        val levels = listOf(threshold, 5.0).distinct().sorted()
+        levels.forEach { level ->
+            val crossed = abs(old.percentChange) < level && abs(current.percentChange) >= level
+            val changedDirection = old.percentChange * current.percentChange < 0 &&
+                abs(current.percentChange) >= level
+            if (!crossed && !changedDirection) return@forEach
+            val direction = if (current.percentChange >= 0) "wzrost" else "spadek"
+            val severity = if (level >= 5.0) "PILNY" else "SILNY RUCH"
+            val key = "${LocalDate.now()}|${level}|$direction"
+            if (MarketStore.lastAlertKey(context, current.symbol) == key) return@forEach
+            val detail = "${current.symbol}: ${if (current.percentChange >= 0) "+" else ""}${current.percentChange.fmt(2)}% od poprzedniego zamknięcia. Kurs ${current.price.fmt(2)} ${current.currency}. Źródło: Twelve Data, czas źródłowy: ${current.timestamp}."
+            MarketStore.addAlert(context, RadarAlert(current.symbol, "$severity: ${current.name}", detail, severity, System.currentTimeMillis()))
+            MarketStore.setLastAlertKey(context, current.symbol, key)
+            MarketNotifications.post(
+                context, "$severity • ${current.symbol}",
+                "${current.name}: ${if (current.percentChange >= 0) "+" else ""}${current.percentChange.fmt(2)}% (próg ${level.fmt(1)}%).",
+                current.symbol.hashCode() + level.toInt()
+            )
+        }
+    }
+}
+
+class MarketScanWorker(
+    appContext: Context,
+    params: WorkerParameters
+) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
+        val key = SecretVault.read(applicationContext, "twelve_data_key")
+        if (key.isBlank()) return Result.success()
+        return try {
+            MarketRefresher.refreshQuotes(
+                applicationContext, key, DefaultWatchlist.load(applicationContext)
+            )
+            applicationContext.getSharedPreferences("market_radar", Context.MODE_PRIVATE)
+                .edit().putLong("last_background_scan", System.currentTimeMillis()).apply()
+            Result.success()
+        } catch (_: Exception) {
+            Result.retry()
+        }
+    }
+}
