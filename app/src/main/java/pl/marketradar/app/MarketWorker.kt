@@ -46,6 +46,14 @@ object MarketScheduler {
         manager.enqueueUniquePeriodicWork(
             "market_radar_broad_90m", ExistingPeriodicWorkPolicy.KEEP, broad
         )
+
+        // News feed refresh runs hourly; headlines remain source-linked in the app.
+        val news = PeriodicWorkRequestBuilder<MarketNewsWorker>(60, TimeUnit.MINUTES)
+            .setConstraints(constraints)
+            .build()
+        manager.enqueueUniquePeriodicWork(
+            "market_radar_news_60m", ExistingPeriodicWorkPolicy.KEEP, news
+        )
     }
 }
 
@@ -204,6 +212,28 @@ class MarketScanWorker(
             MarketRefresher.refreshQuotes(applicationContext, twelveKey, finnhubKey, rest)
             applicationContext.getSharedPreferences("market_radar", Context.MODE_PRIVATE)
                 .edit().putLong("last_background_scan", System.currentTimeMillis()).apply()
+            Result.success()
+        } catch (_: Exception) {
+            Result.retry()
+        }
+    }
+}
+
+
+class MarketNewsWorker(
+    appContext: Context,
+    params: WorkerParameters
+) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
+        val token = SecretVault.read(applicationContext, "finnhub_key")
+        if (token.isBlank()) return Result.success()
+        return try {
+            val news = withContext(Dispatchers.IO) {
+                FinnhubClient.news(token, DefaultWatchlist.load(applicationContext))
+            }
+            MarketStore.saveNews(applicationContext, news)
+            applicationContext.getSharedPreferences("market_radar", Context.MODE_PRIVATE)
+                .edit().putLong("last_news_scan", System.currentTimeMillis()).apply()
             Result.success()
         } catch (_: Exception) {
             Result.retry()
