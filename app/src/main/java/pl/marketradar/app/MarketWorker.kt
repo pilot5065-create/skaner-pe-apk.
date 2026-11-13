@@ -119,6 +119,11 @@ object MarketRefresher {
         val today = LocalDate.now().toString()
         val results = mutableListOf<TechnicalSignal>()
         instruments.forEachIndexed { index, instrument ->
+            if (MarketStore.technicalDate(context, instrument.symbol) == today) {
+                MarketStore.allTechnical(context).firstOrNull { it.symbol == instrument.symbol }?.let { results.add(it) }
+                onProgress(index + 1, instruments.size, "${instrument.symbol}: cache dzienny")
+                return@forEachIndexed
+            }
             try {
                 val signal = TwelveDataClient.technical(apiKey, instrument)
                 MarketStore.saveTechnical(context, signal)
