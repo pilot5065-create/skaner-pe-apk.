@@ -213,7 +213,7 @@ class MarketScanWorker(
     override suspend fun doWork(): Result {
         val twelveKey = SecretVault.read(applicationContext, "twelve_data_key")
         val finnhubKey = SecretVault.read(applicationContext, "finnhub_key")
-        if (twelveKey.isBlank() && finnhubKey.isBlank()) return Result.success()
+        // Yahoo Finance requires no API key; scan the remaining watchlist as well.
         return try {
             val rest = DefaultWatchlist.load(applicationContext).filterNot { it.symbol in PRIORITY_SYMBOLS }
             MarketRefresher.refreshQuotes(applicationContext, twelveKey, finnhubKey, rest)
